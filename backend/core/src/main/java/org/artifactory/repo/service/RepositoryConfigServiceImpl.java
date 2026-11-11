@@ -13,6 +13,7 @@ import org.artifactory.addon.AddonsManager;
 import org.artifactory.addon.HaAddon;
 import org.artifactory.addon.curation.CurationAddon;
 import org.artifactory.addon.ha.HaCommonAddon;
+import org.artifactory.addon.plugin.pkgtype.PluginPackageTypes;
 import org.artifactory.concurrent.ConflictsGuardUtils;
 import org.jfrog.common.concurrency.ConflictsGuard;
 import org.artifactory.api.config.CentralConfigService;
@@ -1687,10 +1688,32 @@ public class RepositoryConfigServiceImpl
                 REPO_CREATE, repositoryConfig, null));
     }
 
+    /**
+     * Builds the change for a single-repository update ({@code upsertRepoConfig} on an existing key,
+     * {@code updateRepoConfig*}, {@code insertPackageConfigByKey}). Before the change is built, the plugin package
+     * type entry of {@code packageTypeConfig} is settled by {@link PluginPackageTypes#packageTypeConfigForUpdate}:
+     * an update that does not mention the key keeps the stored plugin package type, so a configuration rebuilt from
+     * a partial model (the UI repository editor) does not drop it. Bulk upserts and imports replace the configuration
+     * as given.
+     */
     @Nonnull
     private RepoConfigChange getRepoConfigUpdateChange(RepoConfig repositoryConfig, RepoConfig oldRepoConfig) {
+        preservePluginPackageType(repositoryConfig, oldRepoConfig);
         return enrichWithMetadata(new RepoConfigChange(repositoryConfig.getKey(),
                 RepoConfigChange.ConfigAction.REPO_UPDATE, repositoryConfig, oldRepoConfig));
+    }
+
+    private static void preservePluginPackageType(RepoConfig repositoryConfig, RepoConfig oldRepoConfig) {
+        if (oldRepoConfig == null) {
+            return;
+        }
+        Map<String, String> requested = repositoryConfig.getPackageTypeConfig();
+        Map<String, String> decided = PluginPackageTypes.packageTypeConfigForUpdate(repositoryConfig.getPackageType(),
+                requested, oldRepoConfig.getPackageType(), oldRepoConfig.getPackageTypeConfig());
+        if (decided != requested) {
+            requested.clear();
+            requested.putAll(decided);
+        }
     }
 
     /**

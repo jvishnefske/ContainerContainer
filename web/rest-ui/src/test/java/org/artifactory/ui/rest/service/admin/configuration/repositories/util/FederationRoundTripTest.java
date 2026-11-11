@@ -5,6 +5,7 @@ import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.UriInfo;
 import org.apache.commons.lang3.builder.DiffResult;
 import org.artifactory.addon.AddonsManager;
+import org.artifactory.addon.plugin.pkgtype.PluginPackageTypes;
 import org.artifactory.addon.smartrepo.EdgeSmartRepoAddon;
 import org.artifactory.addon.webstart.ArtifactWebstartAddon;
 import org.artifactory.aol.AolService;
@@ -17,6 +18,7 @@ import org.artifactory.api.security.SecurityService;
 import org.artifactory.common.ConstantValues;
 import org.artifactory.descriptor.config.CentralConfigDescriptorImpl;
 import org.artifactory.descriptor.config.MutableCentralConfigDescriptor;
+import org.artifactory.descriptor.repo.RepoType;
 import org.artifactory.federation.FederatedRepoService;
 import org.artifactory.metrics.cuj.RepoCreationMetricsWrapper;
 import org.artifactory.model.RemoteRepoConfig;
@@ -80,6 +82,7 @@ import java.util.concurrent.Callable;
 
 import static org.artifactory.api.repo.UpstreamRepoKind.SMART;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -411,6 +414,31 @@ class FederationRoundTripTest extends ArtifactoryHomeBoundJUnitTest {
 
         stubUriInfo("true", "local", "fed-local");
         assertNull(callGet("fed-local").getFederation());
+    }
+
+    // ── Plugin package type survives a UI edit ────────────────────────────────────────
+
+    /**
+     * The UI model has no field for {@code pluginPackageType}, so the configuration the UI hands to
+     * {@code upsertRepoConfig} after an unchanged GET → save round trip lacks it. The backend restores it with
+     * {@link PluginPackageTypes#packageTypeConfigForUpdate} (applied in {@code RepositoryConfigServiceImpl}; see
+     * {@code RepositoryConfigServiceImplTest#upsertWithoutPluginPackageTypeKeepsStoredType}).
+     */
+    @Test
+    void uiEditOmitsPluginPackageTypeAndBackendMergeKeepsIt() {
+        stubUriInfo("false", "local", "plugin-local");
+        callCreate(buildLocalModel("plugin-local", false));
+        repoStore.get("plugin-local").getPackageTypeConfig().put(PluginPackageTypes.CONFIG_KEY, "simple");
+        Map<String, String> stored = new HashMap<>(repoStore.get("plugin-local").getPackageTypeConfig());
+
+        callUpdate(callGet("plugin-local"));
+
+        RepoConfig handedToBackend = repoStore.get("plugin-local");
+        assertFalse(handedToBackend.getPackageTypeConfig().containsKey(PluginPackageTypes.CONFIG_KEY),
+                "the UI rebuilds packageTypeConfig from its model, which cannot carry the key");
+        Map<String, String> saved = PluginPackageTypes.packageTypeConfigForUpdate(RepoType.Generic,
+                handedToBackend.getPackageTypeConfig(), RepoType.Generic, stored);
+        assertEquals("simple", saved.get(PluginPackageTypes.CONFIG_KEY));
     }
 
     // ── Federated repo served as local via fedAttrOptIn ───────────────────────────────
