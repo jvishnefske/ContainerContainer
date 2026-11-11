@@ -31,6 +31,12 @@
     </parent>
 
     <dependencies>
+        <!-- Groovy user-plugin engine (org.artifactory.addon.plugin.groovy), Apache-2.0 -->
+        <dependency>
+            <groupId>org.apache.groovy</groupId>
+            <artifactId>groovy</artifactId>
+            <version>4.0.28</version>
+        </dependency>
         <!-- JFBus -->
         <dependency>
             <groupId>org.jfrog.eventing</groupId>

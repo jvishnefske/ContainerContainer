@@ -33,37 +33,68 @@ Each item is checked only when a named test demonstrates it.
 
 ### Groovy plugin engine
 
-- [ ] G1. On startup, every `*.groovy` file in `ArtifactoryHome.getPluginsDir()`
+- [x] G1. On startup, every `*.groovy` file in `ArtifactoryHome.getPluginsDir()`
       (`$JFROG_HOME/artifactory/var/etc/artifactory/plugins`) is compiled and
       loaded. A plugin that fails to compile is reported in plugin status and
       does not stop startup or other plugins.
-- [ ] G2. `POST /api/plugins/reload` reloads all plugins without a restart and
+      Evidence (backend/core: `org.artifactory.addon.plugin.groovy.GroovyPluginEngineTest`):
+      `#badScriptsAreReportedAndDoNotBlockOtherPlugins`,
+      `#startupLoadsPluginsThroughContextReadiness`,
+      `#missingPluginsDirectoryLoadsNothing`. Startup is exercised through
+      `GroovyPluginsAddon.onContextReady()`, not a booted server.
+- [x] G2. `POST /api/plugins/reload` reloads all plugins without a restart and
       replaces previously registered hooks and package types.
-- [ ] G3. The DSL supports `download { beforeDownloadRequest, altResponse,
+      Evidence: backend/core: `org.artifactory.addon.plugin.groovy.GroovyPluginEngineTest#reloadReplacesHooksAndPackageTypes`,
+      `#pluginThatStopsCompilingLosesItsPackageTypes`,
+      `#packageTypeMovedBetweenPluginsInOneReloadIsAccepted`; web/rest: `org.artifactory.rest.resource.plugin.GroovyPluginsResourceTest#reloadLoadsPluginsAndReportsEachFile`.
+- [x] G3. The DSL supports `download { beforeDownloadRequest, altResponse,
       afterDownload }`, `storage { beforeCreate, afterCreate, beforeDelete,
       afterDelete }` and `executions { name { params -> } }`, bound to the
       existing `PluginAction` interfaces in `backend/core/.../addon/plugin`.
-- [ ] G4. `POST /api/plugins/execute/{name}` runs a named execution, admin-only
+      Evidence (backend/core: `org.artifactory.addon.plugin.groovy.PluginDslBindingTest`):
+      `#downloadBeforeDownloadRequestSetsModifiedPathOnDownloadCtx`,
+      `#downloadAltResponseSetsStatusAndMessageOnResponseCtx`,
+      `#downloadAfterDownloadReceivesTheResponse`,
+      `#storageHooksFireForCreateAndDelete`,
+      `#executionsBlockDeclaresANamedExecution`,
+      `#hooksBindToTheCatalogActionTypes`. The `upload { beforeUploadRequest }`
+      block and the other `PluginAction` hooks listed in `HookCatalog` are
+      also bound.
+- [x] G4. `POST /api/plugins/execute/{name}` runs a named execution, admin-only
       by default, and returns its status and message.
-- [ ] G5. `GET /api/plugins` lists loaded plugins and their hooks.
-- [ ] G6. Plugin scripts see `repositories`, `log` and `security` bindings.
+      Evidence: web/rest: `org.artifactory.rest.resource.plugin.GroovyPluginsResourceTest#executeRunsTheNamedExecutionAndReturnsItsStatusAndMessage`,
+      `#executeIsAdminOnlyUnlessTheExecutionAllowsTheCaller`; backend/core: `org.artifactory.addon.plugin.groovy.PluginExecutionTest`
+      (`#nonAdminIsRefusedByDefault`, `#declaredUserMayRun`,
+      `#declaredGroupMemberMayRun`, `#cancelledExecutionReturnsTheCancelStatus`).
+- [x] G5. `GET /api/plugins` lists loaded plugins and their hooks.
+      Evidence: web/rest: `org.artifactory.rest.resource.plugin.GroovyPluginsResourceTest#listingShowsExecutionsAndPluginsWithHooks`;
+      backend/core: `org.artifactory.addon.plugin.groovy.PluginListingTest#listsPluginsHooksExecutionsAndFailures`.
+- [x] G6. Plugin scripts see `repositories`, `log` and `security` bindings.
       `repositories` supports at least `getFileInfo`, `getContent`, `deploy`,
       `delete`, `exists`, `getProperties` and `setProperty`.
-- [ ] G7. An exception thrown inside a hook is logged with the plugin name and
+      Evidence: backend/core: `org.artifactory.addon.plugin.groovy.PluginBindingsTest#scriptUsesEveryRepositoriesMethodAndSecurityAndLog`,
+      `#bindingsMapHoldsTheThreeVariables`. `security` exposes only
+      `currentUsername`, `admin` and `anonymous`.
+- [x] G7. An exception thrown inside a hook is logged with the plugin name and
       does not fail the request, except when the hook explicitly sets an error
       status (for example `CancelException` in `beforeCreate`).
+      Evidence: backend/core: `org.artifactory.addon.plugin.groovy.GroovyPluginEngineTest#hookExceptionIsReportedWithPluginNameAndDoesNotFailTheCall`,
+      `#cancelExceptionInBeforeCreateFailsTheOperation`;
+      `PackageTypeDslTest#downloadHandlerFailureIsReportedAndDeclines`.
 
 ### Plugin-defined repository types
 
-- [ ] R1. A plugin declares `packageType('name') { displayName, layout,
+- [x] R1. A plugin declares `packageType('name') { displayName, layout,
       download {}, upload {}, index {} }`. Names are unique, lowercase
       `[a-z0-9-]+`, and must not collide with a `RepoType` value.
-      Registry side only so far (the DSL is not yet covered): invalid names,
-      built-in collisions, duplicates within a batch and names owned by
-      another plugin are rejected all or nothing, shown by
-      `PluginPackageTypeRegistryImplTest#invalidNameRejectsWholeBatch`,
-      `#builtInNameCollisionRejected`, `#duplicateNameWithinBatchRejected`
-      and `#nameOwnedByAnotherPluginRejected`.
+      Registry: invalid names, built-in collisions, duplicates within a
+      batch and names owned by another plugin are rejected all or nothing
+      (`PluginPackageTypeRegistryImplTest#invalidNameRejectsWholeBatch`,
+      `#builtInNameCollisionRejected`, `#duplicateNameWithinBatchRejected`,
+      `#nameOwnedByAnotherPluginRejected`). DSL: the block builds a
+      `PluginPackageType` with its handlers and registry rejections surface in
+      plugin status (`org.artifactory.addon.plugin.groovy.PackageTypeDslTest`,
+      `#invalidTypeNameSurfacesInPluginStatus`).
 - [ ] R2. Creating a local repository through the REST repository API with
       `"packageType": "generic"` and `"packageTypeConfig":
       {"pluginPackageType": "name"}` succeeds only when `name` is registered.
