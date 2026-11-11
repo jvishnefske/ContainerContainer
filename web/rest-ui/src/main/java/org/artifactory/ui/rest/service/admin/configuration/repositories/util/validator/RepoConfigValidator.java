@@ -25,6 +25,8 @@ import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.http.HttpStatus;
 import org.artifactory.addon.AddonsManager;
+import org.artifactory.addon.plugin.pkgtype.PluginPackageTypeRegistry;
+import org.artifactory.addon.plugin.pkgtype.impl.PluginPackageTypeRepoConfigValidator;
 import org.artifactory.api.config.CentralConfigService;
 import org.artifactory.api.config.RepositoryConfigService;
 import org.artifactory.api.repo.RepositoryService;
@@ -68,6 +70,7 @@ import org.springframework.stereotype.Component;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import static java.util.Optional.ofNullable;
@@ -114,6 +117,28 @@ public class RepoConfigValidator {
     private RepositoryService repositoryService;
     @Setter(onMethod_ = {@Autowired})
     private PackageSpecification packageSpecification;
+    private PluginPackageTypeRegistry pluginPackageTypeRegistry;
+
+    @Autowired
+    public void setPluginPackageTypeRegistry(PluginPackageTypeRegistry pluginPackageTypeRegistry) {
+        this.pluginPackageTypeRegistry = pluginPackageTypeRegistry;
+    }
+
+    /**
+     * Rejects a configuration naming an unregistered plugin package type with 400 and a message naming the type
+     * (requirement R2). Keeping the type name already stored in {@code existing} is allowed even when that type is
+     * not registered, so a repository whose plugin was removed stays editable. Delegates the decision to
+     * {@link PluginPackageTypeRepoConfigValidator#check}; with no registry wired, no plugin type is registered.
+     *
+     * @param existing the stored configuration, {@code null} on create
+     */
+    public void validatePluginPackageType(RepoConfig repoConfig, RepoConfig existing) throws RepoConfigException {
+        Optional<String> error = PluginPackageTypeRepoConfigValidator.check(repoConfig, existing,
+                name -> pluginPackageTypeRegistry != null && pluginPackageTypeRegistry.find(name).isPresent());
+        if (error.isPresent()) {
+            throw new RepoConfigException(error.get(), HttpStatus.SC_BAD_REQUEST);
+        }
+    }
 
     @Autowired
     public void setCentralConfig(CentralConfigService centralConfig) {

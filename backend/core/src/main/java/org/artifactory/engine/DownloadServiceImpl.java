@@ -44,6 +44,9 @@ import org.artifactory.addon.plugin.download.AfterDownloadErrorAction;
 import org.artifactory.addon.plugin.download.BeforeDownloadAction;
 import org.artifactory.addon.plugin.download.BeforeDownloadRequestAction;
 import org.artifactory.addon.plugin.download.DownloadCtx;
+import org.artifactory.addon.plugin.pkgtype.PluginPackageType;
+import org.artifactory.addon.plugin.pkgtype.impl.PluginPackageTypeResolver;
+import org.artifactory.addon.plugin.pkgtype.impl.PluginTypeHandlers;
 import org.artifactory.addon.worker.WorkersAddon;
 import org.artifactory.api.config.CentralConfigService;
 import org.artifactory.api.jackson.JacksonFactory;
@@ -71,6 +74,8 @@ import org.artifactory.descriptor.repo.RepoType;
 import org.artifactory.entitlement.EntitlementType;
 import org.artifactory.exception.UnifiedEventException;
 import org.artifactory.exception.WorkerStopException;
+import org.artifactory.factory.InfoFactoryHolder;
+import org.artifactory.fs.MutableFileInfo;
 import org.artifactory.fs.RepoResource;
 import org.artifactory.md.MetadataDefinitionService;
 import org.artifactory.md.Properties;
@@ -193,6 +198,9 @@ import static org.artifactory.util.BasicHttpUtils.isSuccessfulResponseCode;
 import static org.jfrog.storage.binstore.ifc.model.BinaryElementHeaders.MANUAL_REDIRECT_TYPE;
 
 /**
+ * Serves download (GET/HEAD) requests. For a local repository of a registered plugin package type, the type's
+ * download handler is offered the request before normal resolution (see {@link #respondedByPluginPackageType}).
+ *
  * @author Yoav Landman
  */
 @Slf4j
@@ -245,6 +253,13 @@ public class DownloadServiceImpl implements InternalDownloadService, Entitlement
     AltResponseHelper altResponseHelper;
     @Autowired
     UnifiedEventServiceImpl unifiedEventService;
+    /**
+     * Looks up a repository's plugin package type; {@code null} only in unit-test harnesses that build this service
+     * by hand, in which case plugin package type routing is skipped.
+     */
+    @Autowired
+    @VisibleForTesting
+    PluginPackageTypeResolver pluginPackageTypeResolver;
 
     @Override
     public void onLicenseLoaded() {
@@ -432,6 +447,9 @@ public class DownloadServiceImpl implements InternalDownloadService, Entitlement
             }
             RequestThreadLocal.getDownloadPerfCounters(true);
             DownloadRequestContext requestContext = getDownloadRequestContext(request, downloadCtx);
+            if (respondedByPluginPackageType(requestContext, response, repository)) {
+                return;
+            }
             RepoResource resource =
                     getRepoResource(request, repository, requestContext);
             setXrayOriginIfNeeded(response, resource);
@@ -1081,6 +1099,87 @@ public class DownloadServiceImpl implements InternalDownloadService, Entitlement
         if (redirectInfo != null) {
             redirectInfo.setRedirectTarget(TrafficEntry.TrafficTarget.CONTROLLED_CACHE.displayName());
         }
+    }
+
+    /**
+     * Offers a GET/HEAD to the download handler of the repository's plugin package type (requirement R3), before
+     * normal resolution. Applies only to local repositories whose type is registered and has a download handler.
+     * When the handler declines, throws (logged with type and plugin name), or the type is unregistered, returns
+     * {@code false} and normal Generic handling follows.
+     *
+     * @return {@code true} when the handler produced the response, which has then been sent
+     */
+    @VisibleForTesting
+    boolean respondedByPluginPackageType(InternalRequestContext requestContext, ArtifactoryResponse response,
+            Repo<?, ?> repository) throws IOException {
+        if (pluginPackageTypeResolver == null) {
+            return false;
+        }
+        Optional<PluginPackageType> type = pluginPackageTypeResolver.routableTypeOf(repository);
+        if (type.isEmpty() || type.get().download().isEmpty()) {
+            return false;
+        }
+        Request request = requestContext.getRequest();
+        RepoPath repoPath = request.getRepoPath();
+        PluginTypeHandlers.DownloadOutcome outcome =
+                PluginTypeHandlers.offerDownload(type.get(), request, repoPath, ResponseCtx::new);
+        if (outcome instanceof PluginTypeHandlers.DownloadOutcome.Failed failed) {
+            log.error("Download handler of plugin package type '{}' (plugin '{}') failed for {}; " +
+                            "falling back to Generic handling: {}", type.get().name(), type.get().pluginName(),
+                    repoPath, failed.error().getMessage(), failed.error());
+            return false;
+        }
+        if (!(outcome instanceof PluginTypeHandlers.DownloadOutcome.Handled handled)) {
+            return false;
+        }
+        RepoRequests.logToContext("Download handled by plugin package type '%s'", type.get().name());
+        respondPluginHandled(requestContext, response, handled.response(), repoPath);
+        return true;
+    }
+
+    /**
+     * Sends a plugin-filled {@link ResponseCtx} the way {@link #respondNotModifiedResource} sends an alternate
+     * response: {@link AltResponseHelper#applyResponseCtx} decides status, headers and content, and
+     * {@link RequestResponseHelper} streams it against a resource describing the requested path.
+     */
+    private void respondPluginHandled(InternalRequestContext requestContext, ArtifactoryResponse response,
+            ResponseCtx responseCtx, RepoPath repoPath) throws IOException {
+        if (responseCtx.getStatus() == ResponseCtx.UNSET_STATUS) {
+            responseCtx.setStatus(HttpStatus.SC_OK);
+        }
+        ResourceStreamHandle handle = altResponseHelper.applyResponseCtx(response, responseCtx, HttpStatus.SC_OK);
+        if (isError(response, handle)) {
+            return;
+        }
+        RepoResource resource = pluginResponseResource(repoPath, handle);
+        if (requestContext.getRequest().isHeadOnly()) {
+            requestResponseHelper.sendHeadResponse(response, resource, handle);
+            if (handle != null) {
+                handle.close();
+            }
+            return;
+        }
+        if (handle == null) {
+            requestResponseHelper.sendEmptyResponse(response, resource);
+            return;
+        }
+        requestResponseHelper.sendBodyResponse(response, resource, handle, requestContext,
+                shouldTriggerDownloadInterceptors(requestContext.getRequest()));
+    }
+
+    /**
+     * A resource for content a plugin generated at {@code repoPath}: size from the handle, modified now, no
+     * checksums, marked expirable so clients do not cache it.
+     */
+    private static RepoResource pluginResponseResource(RepoPath repoPath, ResourceStreamHandle handle) {
+        MutableFileInfo info = InfoFactoryHolder.get().createFileInfo(repoPath);
+        info.setSize(handle != null && handle.getSize() > 0 ? handle.getSize() : 0);
+        long now = System.currentTimeMillis();
+        info.setLastModified(now);
+        info.setCreated(now);
+        FileResource resource = new FileResource(info);
+        resource.expirable();
+        return resource;
     }
 
     private boolean isError(ArtifactoryResponse response, ResourceStreamHandle handle) {

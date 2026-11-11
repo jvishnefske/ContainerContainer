@@ -30,6 +30,7 @@ import org.artifactory.api.metrics.FeatureAdoptionAction;
 import org.artifactory.api.repo.RepositoryService;
 import org.artifactory.common.ConstantValues;
 import org.artifactory.common.config.NegotiationException;
+import org.artifactory.config.ConfigurationException;
 import org.artifactory.concurrent.LockingException;
 import org.artifactory.descriptor.config.MutableCentralConfigDescriptor;
 import org.artifactory.descriptor.repo.RepoType;
@@ -71,6 +72,10 @@ import java.util.Set;
 import static org.apache.http.HttpStatus.SC_BAD_REQUEST;
 
 /**
+ * UI REST service that creates a repository from its UI model. The built configuration is checked with
+ * {@link RepoConfigValidator}, including {@link RepoConfigValidator#validatePluginPackageType}, before it is saved;
+ * a {@link ConfigurationException} raised by a backend validator while saving is returned with its status code.
+ *
  * @author Aviad Shikloshi
  * @author Dan Feldman
  */
@@ -115,6 +120,7 @@ public class CreateRepositoryConfigService implements
             RepoConfig repoConfig = createRepoConfig(response, model, updatedConfigDescriptor, repositoryService,
                     fedAttrOptIn);
             if (repoConfig != null) {
+                repoValidator.validatePluginPackageType(repoConfig, null);
                 projectsService.validateRepoConfigIsMatchingToProjectSpec(model.getGeneral().getProjectKey(),
                         model.getGeneral().getRepoKey(), model.getGeneral().getEnvironments());
                 int numberOfDiffs = configService.findDiff(configService.getDescriptor(),
@@ -151,6 +157,11 @@ public class CreateRepositoryConfigService implements
             removeRepositoryFromCurrentProject(repoKey);
         } catch (RepoConfigException e) {
             log.warn("Failed to create repository '{}'.", repoKey, e);
+            response.responseCode(e.getStatusCode())
+                    .error("Failed to create repository " + repoKey + ": " + e.getMessage());
+            removeRepositoryFromCurrentProject(repoKey);
+        } catch (ConfigurationException e) {
+            log.warn("Failed to create repository '{}': {}", repoKey, e.getMessage());
             response.responseCode(e.getStatusCode())
                     .error("Failed to create repository " + repoKey + ": " + e.getMessage());
             removeRepositoryFromCurrentProject(repoKey);

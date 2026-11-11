@@ -26,6 +26,10 @@ import java.util.Map;
 import static org.artifactory.util.BasicHttpUtils.isRedirectionResponseCode;
 import static org.artifactory.util.BasicHttpUtils.isSuccessfulResponseCode;
 
+/**
+ * Runs the alternate-response plugin hooks and applies a {@link ResponseCtx} filled by plugin code to an
+ * {@link ArtifactoryResponse}.
+ */
 public class AltResponseHelper {
     private static final Logger log = LoggerFactory.getLogger(AltResponseHelper.class);
 
@@ -106,6 +110,20 @@ public class AltResponseHelper {
                 responseRepoPath);
         addonsManager.addonByType(WorkersAddon.class).run(
                 SupportedUnifiedEvents.ALT_ALL_RESPONSES, responseCtx, requestContext.getRequest());
+        return applyResponseCtx(response, responseCtx, intendedStatus);
+    }
+
+    /**
+     * Applies a filled {@link ResponseCtx} to {@code response}: copies its headers; when its status differs from
+     * {@code intendedStatus}, sets a 2xx/3xx status or sends a 4xx/5xx error with the context's message; then returns
+     * the content to stream, if any. Shared by the {@code altAllResponses} plugin hook and plugin package type
+     * download handlers.
+     *
+     * @return a handle over the context's message, else over its input stream, else {@code null}; also {@code null}
+     *         when an error response was sent
+     */
+    public ResourceStreamHandle applyResponseCtx(ArtifactoryResponse response, ResponseCtx responseCtx,
+            int intendedStatus) throws IOException {
         setResponseHeaders(response, responseCtx.getHeaders());
 
         int status = responseCtx.getStatus();

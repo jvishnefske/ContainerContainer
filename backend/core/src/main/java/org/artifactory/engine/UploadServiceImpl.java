@@ -36,6 +36,9 @@ import org.artifactory.addon.analytics.AnalyticsAddon;
 import org.artifactory.addon.leadartifactdetector.LeadArtifactDetectorAddon;
 import org.artifactory.addon.onboarding.OnBoardingAddon;
 import org.artifactory.addon.plugin.PluginsAddon;
+import org.artifactory.addon.plugin.pkgtype.PluginPackageType;
+import org.artifactory.addon.plugin.pkgtype.impl.PluginPackageTypeResolver;
+import org.artifactory.addon.plugin.pkgtype.impl.PluginTypeHandlers;
 import org.artifactory.addon.plugin.upload.BeforeUploadRequestAction;
 import org.artifactory.addon.plugin.upload.UploadCtx;
 import org.artifactory.api.properties.PropertiesService;
@@ -177,6 +180,8 @@ import static org.jfrog.storage.binstore.ifc.model.BinaryElementHeaders.REPOSITO
 /**
  * Handles upload of a single item. The item can be file, directory, properties, checksum data etc.
  * This service validates the request and delegates the actual upload to the repo and repo service.
+ * For a local repository of a registered plugin package type, the type's upload handler may first accept, reject
+ * or rewrite the upload (see {@link #routeByPluginPackageType}).
  *
  * @author Yoav Landman
  */
@@ -204,6 +209,7 @@ public class UploadServiceImpl implements UploadService, GracefulShutdownAware {
     private final boolean allowDeployFallback;
     private RepoStatsService repoStatsService;
     private UnifiedEventService unifiedEventService;
+    private PluginPackageTypeResolver pluginPackageTypeResolver;
 
     public UploadServiceImpl() {
         successfulDeploymentResponseHelper = new SuccessfulDeploymentResponseHelper();
@@ -287,6 +293,12 @@ public class UploadServiceImpl implements UploadService, GracefulShutdownAware {
             return;
         }
 
+        Optional<ArtifactoryRequest> routed = routeByPluginPackageType(request, response, targetRepository);
+        if (routed.isEmpty()) {
+            return;
+        }
+        request = routed.get();
+
         RepoPath repoPath = InternalRepoPathFactory.create(targetRepository.getKey(), request.getPath(),
                 request.getRepoPath().isFolder());
         try {
@@ -301,6 +313,47 @@ public class UploadServiceImpl implements UploadService, GracefulShutdownAware {
         }
 
         adjustResponseAndUpload(request, response, targetRepository);
+    }
+
+    /**
+     * Applies the upload handler of the target repository's plugin package type (requirement R4). Folder creation
+     * and repositories without a registered plugin type pass through unchanged. {@code Accept} keeps the request,
+     * {@code Rewrite} to a path in the same repository returns a request translated to that path, and
+     * {@code Reject} (or a rewrite into another repository, refused with 400) sends the error and returns empty so
+     * nothing is stored. A handler that throws is logged with type and plugin name and the upload proceeds.
+     *
+     * @return the request to continue with, or empty when the response has already been sent
+     */
+    @VisibleForTesting
+    Optional<ArtifactoryRequest> routeByPluginPackageType(ArtifactoryRequest request, ArtifactoryResponse response,
+            LocalRepo<?, ?> targetRepository) throws IOException {
+        if (pluginPackageTypeResolver == null || request.getRepoPath().isFolder()) {
+            return Optional.of(request);
+        }
+        Optional<PluginPackageType> type = pluginPackageTypeResolver.routableTypeOf(targetRepository);
+        if (type.isEmpty() || type.get().upload().isEmpty()) {
+            return Optional.of(request);
+        }
+        RepoPath requested = InternalRepoPathFactory.create(targetRepository.getKey(), request.getPath());
+        PluginTypeHandlers.UploadOutcome outcome = PluginTypeHandlers.decideUpload(type.get(), request, requested);
+        if (outcome instanceof PluginTypeHandlers.UploadOutcome.Failed failed) {
+            log.error("Upload handler of plugin package type '{}' (plugin '{}') failed for {}; " +
+                            "storing the upload unchanged: {}", type.get().name(), type.get().pluginName(),
+                    requested, failed.error().getMessage(), failed.error());
+            return Optional.of(request);
+        }
+        PluginTypeHandlers.UploadRoute route = PluginTypeHandlers.route(
+                ((PluginTypeHandlers.UploadOutcome.Decided) outcome).decision(), requested);
+        if (route instanceof PluginTypeHandlers.UploadRoute.Refuse refuse) {
+            response.sendError(refuse.status(), refuse.message(), log);
+            return Optional.empty();
+        }
+        RepoPath target = ((PluginTypeHandlers.UploadRoute.Store) route).path();
+        if (target.equals(requested)) {
+            return Optional.of(request);
+        }
+        log.debug("Plugin package type '{}' rewrote upload {} to {}", type.get().name(), requested, target);
+        return Optional.of(new TranslatedArtifactoryRequest(target, request));
     }
 
     private static boolean isInternalMetadataDeploy(ArtifactoryRequest request) {
@@ -959,6 +1012,11 @@ public class UploadServiceImpl implements UploadService, GracefulShutdownAware {
         return isBlank(userAgent) || !userAgent.contains(buildInfoAgent) ||
                 new DefaultArtifactVersion(StringUtils.substringAfter(userAgent, buildInfoAgent))
                         .compareTo(versionComparator) >= 0;
+    }
+
+    @Autowired
+    public void setPluginPackageTypeResolver(PluginPackageTypeResolver pluginPackageTypeResolver) {
+        this.pluginPackageTypeResolver = pluginPackageTypeResolver;
     }
 
     @Autowired

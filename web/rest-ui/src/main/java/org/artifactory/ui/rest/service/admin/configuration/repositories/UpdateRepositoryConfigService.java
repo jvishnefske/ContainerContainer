@@ -27,6 +27,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.http.HttpStatus;
 import org.artifactory.common.ConstantValues;
 import org.artifactory.common.config.NegotiationException;
+import org.artifactory.config.ConfigurationException;
 import org.artifactory.federation.exceptions.FederatedRemoteMembersUpdateException;
 import org.artifactory.projects.ProjectsService;
 import org.artifactory.rest.common.exception.RepoConfigException;
@@ -46,6 +47,10 @@ import java.util.Collection;
 import java.util.Set;
 
 /**
+ * UI REST service that updates a repository from its UI model. Validation failures raised while saving, including a
+ * {@link ConfigurationException} from a backend repository-config validator (for example an unknown plugin package
+ * type), are returned with the exception's status code and message.
+ *
  * @author Dan Feldman
  * @author Aviad Shikloshi
  */
@@ -91,6 +96,10 @@ public class UpdateRepositoryConfigService implements RestService<RepositoryConf
             response.responseCode(HttpStatus.SC_BAD_REQUEST).error("The password could not be decrypted");
         } catch (RepoConfigException e) {
             log.warn("Failed to update repository '{}'.", repoKey, e);
+            response.responseCode(e.getStatusCode())
+                    .error("Failed to update repository " + repoKey + ": " + e.getMessage());
+        } catch (ConfigurationException e) {
+            log.warn("Failed to update repository '{}': {}", repoKey, e.getMessage());
             response.responseCode(e.getStatusCode())
                     .error("Failed to update repository " + repoKey + ": " + e.getMessage());
         } catch (Exception e) {

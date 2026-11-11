@@ -58,22 +58,49 @@ Each item is checked only when a named test demonstrates it.
 - [ ] R1. A plugin declares `packageType('name') { displayName, layout,
       download {}, upload {}, index {} }`. Names are unique, lowercase
       `[a-z0-9-]+`, and must not collide with a `RepoType` value.
+      Registry side only so far (the DSL is not yet covered): invalid names,
+      built-in collisions, duplicates within a batch and names owned by
+      another plugin are rejected all or nothing, shown by
+      `PluginPackageTypeRegistryImplTest#invalidNameRejectsWholeBatch`,
+      `#builtInNameCollisionRejected`, `#duplicateNameWithinBatchRejected`
+      and `#nameOwnedByAnotherPluginRejected`.
 - [ ] R2. Creating a local repository through the REST repository API with
       `"packageType": "generic"` and `"packageTypeConfig":
       {"pluginPackageType": "name"}` succeeds only when `name` is registered.
       Otherwise it returns 400 with a message naming the unknown type.
-- [ ] R3. GET requests to a plugin-typed repository go through the type's
+      Not yet checked: the save-time validator and the UI REST layer are
+      covered by `PluginPackageTypeRepoConfigValidatorTest#createWithUnknownTypeRejectedWith400NamingType`,
+      `#createWithRegisteredTypeAccepted` and
+      `PluginPackageTypeRepoValidationTest#createWithUnknownTypeReturns400AndStoresNothing`,
+      but no test yet drives the public REST repository endpoint, whose OSS
+      implementation lives in `RestAddonDefaultImpl`.
+- [x] R3. GET requests to a plugin-typed repository go through the type's
       `download` handler, which can serve stored content, a generated
       response (for example an index document) or a status code. When the
       handler declines, normal Generic handling applies.
-- [ ] R4. PUT requests to a plugin-typed repository go through the type's
+      Evidence: `DownloadServiceImplPluginPackageTypeTest#handledMessageIsServedAsBody`,
+      `#handledStreamIsServedAsBody`, `#handledErrorStatusIsSentAsError`,
+      `#handledHeadSendsHeadResponse`, `#declinedFallsThroughToGeneric` and
+      `#handlerExceptionFallsThroughToGeneric`.
+- [x] R4. PUT requests to a plugin-typed repository go through the type's
       `upload` handler, which can reject the upload or rewrite the target path
       before storage.
-- [ ] R5. After an artifact is stored in a plugin-typed repository, the type's
+      Evidence: `UploadServiceImplPluginPackageTypeTest#acceptLeavesRequestUnchanged`,
+      `#rejectSendsStatusAndStoresNothing`, `#rewriteInSameRepoTranslatesTargetPath`
+      and `#rewriteToOtherRepoRejectedWith400`.
+- [x] R5. After an artifact is stored in a plugin-typed repository, the type's
       `index` handler runs asynchronously, so it can maintain metadata files
       such as an index.
-- [ ] R6. If the plugin is removed, a repository of its type keeps working as
+      Evidence: `PluginPackageTypeIndexInterceptorTest#indexRunsOnceAndNotForItsOwnWrites`
+      and `#dispatchIsAsyncAfterCommit`.
+- [x] R6. If the plugin is removed, a repository of its type keeps working as
       plain Generic and its stored artifacts stay intact.
+      Evidence: `DownloadServiceImplPluginPackageTypeTest#unregisteredTypeFallsThroughToGeneric`,
+      `UploadServiceImplPluginPackageTypeTest#unregisteredTypeStoresAsGeneric`,
+      `PluginPackageTypeIndexInterceptorTest#typeRemovedBeforeAsyncRunSkipsHandler`,
+      `PluginPackageTypeResolverTest#unregisteredTypeServesAsGenericAndIsReportedOnce`,
+      `PluginPackageTypeRepoConfigValidatorTest#importOfRepoWithUnknownTypeDoesNotFail`
+      and `#updateKeepingTypeOfRemovedPluginAccepted`.
 - [ ] R7. A worked example plugin ships under `plugins/examples/` and defines a
       simple package type with an index, covered by an integration test.
 
