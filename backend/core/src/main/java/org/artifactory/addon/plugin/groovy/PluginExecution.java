@@ -32,7 +32,7 @@ import java.util.Set;
  * @param name        execution name
  * @param users       user names allowed to run it besides administrators
  * @param groups      group names whose members may run it
- * @param httpMethod  declared HTTP method, informational ({@code POST} by default)
+ * @param httpMethod  the only HTTP method the execution answers to ({@code POST} by default); other methods get 405
  * @param version     declared version, informational
  * @param description declared description, empty when not given
  * @param closure     the execution body, called with {@code (params, body)} and a {@code ResponseCtx} delegate

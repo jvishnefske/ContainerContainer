@@ -116,22 +116,30 @@ public final class GroovyPluginEngine {
     }
 
     /**
-     * Checks whether {@code caller} may run the named execution, without running it.
+     * Checks whether {@code caller} may run the named execution with HTTP {@code method}, without running it.
      *
-     * @return empty when it may, otherwise the response to send (404 unknown, 403 not permitted)
+     * @param method the request's HTTP method; it must equal the execution's declared {@code httpMethod}
+     *               (ignoring case), so a state-changing execution declared {@code POST} cannot be triggered by
+     *               a cross-site {@code GET} such as an image link
+     * @return empty when it may, otherwise the response to send (404 unknown, 403 not permitted, 405 wrong
+     *         method)
      */
-    public Optional<ResponseCtx> refuse(String executionName, Caller caller) {
-        return refuse(current.get().execution(executionName), executionName, caller);
+    public Optional<ResponseCtx> refuse(String executionName, String method, Caller caller) {
+        return refuse(current.get().execution(executionName), executionName, method, caller);
     }
 
     private static Optional<ResponseCtx> refuse(Optional<PluginExecution> execution, String executionName,
-            Caller caller) {
+            String method, Caller caller) {
         if (execution.isEmpty()) {
             return Optional.of(response(404, "No plugin execution named '" + executionName + "' is loaded"));
         }
         if (!ExecutionAuthorizer.isPermitted(execution.get(), caller)) {
             return Optional.of(response(403, "User '" + caller.username()
                     + "' is not permitted to run plugin execution '" + executionName + "'"));
+        }
+        if (method == null || !execution.get().httpMethod().equalsIgnoreCase(method)) {
+            return Optional.of(response(405, "Plugin execution '" + executionName + "' accepts only "
+                    + execution.get().httpMethod()));
         }
         return Optional.empty();
     }
@@ -140,14 +148,17 @@ public final class GroovyPluginEngine {
      * Runs a named execution with a fresh {@link ResponseCtx} as delegate, so the body sets {@code status}
      * and {@code message}. Never throws.
      *
+     * @param method the request's HTTP method, checked against the execution's declared one
      * @param params request parameters, passed as the closure's first argument
      * @param body   request body handle or {@code null}, passed as the second argument
      * @return the response: the execution's status (200 when unset) and message; 404/403 when refused;
-     *         the cancel status for a {@link CancelException}; 500 for any other failure
+     *         405 for the wrong HTTP method; the cancel status for a {@link CancelException}; 500 for any other
+     *         failure
      */
-    public ResponseCtx execute(String executionName, Map<String, ?> params, Object body, Caller caller) {
+    public ResponseCtx execute(String executionName, String method, Map<String, ?> params, Object body,
+            Caller caller) {
         Optional<PluginExecution> found = current.get().execution(executionName);
-        Optional<ResponseCtx> refusal = refuse(found, executionName, caller);
+        Optional<ResponseCtx> refusal = refuse(found, executionName, method, caller);
         if (refusal.isPresent() || found.isEmpty()) {
             return refusal.orElseGet(() -> response(404, executionName));
         }

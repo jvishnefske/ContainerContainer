@@ -44,6 +44,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -73,7 +74,8 @@ class GroovyPluginsResourceTest {
                 HookFailureReporter.logging());
         GroovyPluginsAddon addon = new GroovyPluginsAddon(engine, () -> caller, Runnable::run);
         when(addonsManager.addonByType(PluginsAddon.class)).thenReturn(addon);
-        when(addonsManager.addonByType(RestAddon.class)).thenReturn(new RestAddonDefaultImpl(addonsManager));
+        RestAddon restAddon = new RestAddonDefaultImpl(addonsManager, () -> caller.admin());
+        when(addonsManager.addonByType(RestAddon.class)).thenReturn(restAddon);
         when(aolService.isAol()).thenReturn(false);
         when(request.getMethod()).thenReturn("POST");
         resource = new PluginsResource(mock(BuildFacade.class), addonsManager, aolService);
@@ -131,6 +133,37 @@ class GroovyPluginsResourceTest {
         caller = new Caller("frank", false, Set.of("friends"));
         assertEquals(200, resource.execute(request, body(""), "hello", null, 0).getStatus());
         assertEquals(404, resource.execute(request, body(""), "missing", null, 0).getStatus());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void nonAdminListingHidesUnrunnableExecutionsAndPluginDiagnostics() {
+        resource.reload(false);
+        caller = new Caller("eve", false, Set.of("strangers"));
+        Map<String, Object> entity = assertInstanceOf(Map.class, resource.getPluginInfo().getEntity());
+        assertTrue(((List<?>) entity.get("executions")).isEmpty());
+        assertFalse(entity.containsKey("plugins"));
+
+        caller = new Caller("frank", false, Set.of("friends"));
+        entity = assertInstanceOf(Map.class, resource.getPluginInfo().getEntity());
+        assertEquals(1, ((List<?>) entity.get("executions")).size());
+        assertFalse(entity.containsKey("plugins"));
+    }
+
+    @Test
+    void statusEndpointIsAdminOnly() {
+        resource.reload(false);
+        caller = new Caller("frank", false, Set.of("friends"));
+        Response response = resource.getPluginStatus();
+        assertEquals(403, response.getStatus());
+        assertFalse(String.valueOf(response.getEntity()).contains("broken.groovy"));
+    }
+
+    @Test
+    void executeWithWrongHttpMethodIsRefusedWith405() throws Exception {
+        resource.reload(false);
+        when(request.getMethod()).thenReturn("GET");
+        assertEquals(405, resource.execute(request, body(""), "hello", null, 0).getStatus());
     }
 
     @Test

@@ -32,11 +32,13 @@ import org.artifactory.addon.AddonsManager;
 import org.artifactory.addon.license.LicenseStatus;
 import org.artifactory.addon.plugin.PluginsAddon;
 import org.artifactory.addon.plugin.ResponseCtx;
+import org.artifactory.api.context.ContextHelper;
 import org.artifactory.api.download.FolderDownloadResult;
 import org.artifactory.api.rest.artifact.ItemPermissions;
 import org.artifactory.api.rest.replication.ReplicationRequest;
 import org.artifactory.api.rest.search.result.ArtifactVersionsResult;
 import org.artifactory.api.rest.search.result.LicensesSearchResult;
+import org.artifactory.api.security.SecurityService;
 import org.artifactory.download.FolderDownloadException;
 import org.artifactory.fs.ItemInfo;
 import org.artifactory.repo.RepoPath;
@@ -58,6 +60,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
 import java.util.Set;
 
 /**
@@ -76,6 +79,8 @@ import java.util.Set;
 public class RestAddonDefaultImpl implements RestAddon {
 
     private final AddonsManager addonsManager;
+    /** Whether the current caller is an administrator; gates the plugin diagnostics in the info response. */
+    private final BooleanSupplier currentUserIsAdmin;
 
     /** Creates an instance with no plugin engine; every method throws {@link MissingRestAddonException}. */
     public RestAddonDefaultImpl() {
@@ -88,7 +93,16 @@ public class RestAddonDefaultImpl implements RestAddon {
      */
     @Autowired
     public RestAddonDefaultImpl(@Lazy @Nullable AddonsManager addonsManager) {
+        this(addonsManager, () -> ContextHelper.get().beanForType(SecurityService.class).isAdmin());
+    }
+
+    /**
+     * @param addonsManager      as for {@link #RestAddonDefaultImpl(AddonsManager)}
+     * @param currentUserIsAdmin reports whether the current caller is an administrator; used by tests
+     */
+    public RestAddonDefaultImpl(@Nullable AddonsManager addonsManager, BooleanSupplier currentUserIsAdmin) {
         this.addonsManager = addonsManager;
+        this.currentUserIsAdmin = currentUserIsAdmin;
     }
 
     /** @return the installed plugin engine, or throws {@link MissingRestAddonException} when there is none */
@@ -305,7 +319,9 @@ public class RestAddonDefaultImpl implements RestAddon {
     public Response getUserPluginInfo(@Nullable String pluginType) {
         PluginsAddon plugins = pluginEngine();
         Map<String, Object> info = new LinkedHashMap<>(plugins.getPluginInfo(pluginType));
-        if (pluginType == null) {
+        // The per-plugin dump names plugin files and carries load errors, so only administrators get it. The
+        // execution listing above is already limited by the engine to executions the caller may run.
+        if (pluginType == null && currentUserIsAdmin.getAsBoolean()) {
             info.put("plugins", plugins.getPluginsInfoSupportBundleDumpAsMap());
         }
         return Response.ok(info, MediaType.APPLICATION_JSON_TYPE).build();

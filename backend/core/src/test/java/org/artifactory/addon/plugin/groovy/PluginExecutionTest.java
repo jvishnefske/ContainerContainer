@@ -143,6 +143,26 @@ class PluginExecutionTest {
     }
 
     @Test
+    void wrongHttpMethodIsRefusedWith405AndDoesNotRun() {
+        ResponseCtx ctx = rig.addon.execute("background", "GET", Map.of(), null, false);
+        assertEquals(405, ctx.getStatus());
+        assertTrue(ctx.getMessage().contains("accepts only POST"));
+        assertTrue(rig.calls.isEmpty());
+    }
+
+    @Test
+    void wrongHttpMethodIsRefusedBeforeAsyncQueueing() {
+        assertEquals(405, rig.addon.execute("background", "get", Map.of(), null, true).getStatus());
+        assertTrue(rig.asyncTasks.isEmpty());
+    }
+
+    @Test
+    void httpMethodMatchIgnoresCase() {
+        rig.addon.execute("background", "post", Map.of("x", List.of("1")), null, false);
+        assertEquals(List.of("ran [1]"), rig.calls);
+    }
+
+    @Test
     void authorizerRules() {
         PluginExecution open = PluginExecution.fromOptions("p", "e", Map.of("users", List.of("u"), "groups", "g"),
                 new Closure<Object>(null) {

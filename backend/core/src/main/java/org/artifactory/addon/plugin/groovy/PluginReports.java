@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -80,9 +81,20 @@ public final class PluginReports {
      * @return kind to the {@link PluginInfo} of each item of that kind
      */
     public static Map<String, List<PluginInfo>> pluginInfo(PluginSnapshot snapshot, String pluginType) {
+        return pluginInfo(snapshot, pluginType, execution -> true);
+    }
+
+    /**
+     * Like {@link #pluginInfo(PluginSnapshot, String)}, listing only the executions {@code visible} accepts,
+     * so callers can hide executions the current user may not run.
+     */
+    public static Map<String, List<PluginInfo>> pluginInfo(PluginSnapshot snapshot, String pluginType,
+            Predicate<PluginExecution> visible) {
         List<PluginInfo> executions = new ArrayList<>();
         for (PluginExecution execution : snapshot.executions()) {
-            executions.add(execution.toPluginInfo());
+            if (visible.test(execution)) {
+                executions.add(execution.toPluginInfo());
+            }
         }
         Map<String, List<PluginInfo>> info = new LinkedHashMap<>();
         if (pluginType == null || pluginType.isBlank() || EXECUTIONS.equals(pluginType)) {

@@ -166,13 +166,13 @@ public class GroovyPluginsAddon implements PluginsAddon, ContextReadinessListene
         @SuppressWarnings("unchecked")
         Map<String, ?> typedParams = params == null ? Map.of() : (Map<String, ?>) params;
         if (!async) {
-            return engine.execute(executionName, typedParams, body, current);
+            return engine.execute(executionName, method, typedParams, body, current);
         }
-        Optional<ResponseCtx> refusal = engine.refuse(executionName, current);
+        Optional<ResponseCtx> refusal = engine.refuse(executionName, method, current);
         if (refusal.isPresent()) {
             return refusal.get();
         }
-        asyncExecutor.execute(() -> engine.execute(executionName, typedParams, body, current));
+        asyncExecutor.execute(() -> engine.execute(executionName, method, typedParams, body, current));
         ResponseCtx accepted = new ResponseCtx();
         accepted.setStatus(202);
         return accepted;
@@ -189,7 +189,9 @@ public class GroovyPluginsAddon implements PluginsAddon, ContextReadinessListene
 
     @Override
     public Map<String, List<PluginInfo>> getPluginInfo(@Nullable String pluginType) {
-        return PluginReports.pluginInfo(engine.snapshot(), pluginType);
+        Caller current = caller.get();
+        return PluginReports.pluginInfo(engine.snapshot(), pluginType,
+                execution -> ExecutionAuthorizer.isPermitted(execution, current));
     }
 
     @Override
@@ -211,6 +213,12 @@ public class GroovyPluginsAddon implements PluginsAddon, ContextReadinessListene
     @Override
     public ResponseCtx getInstalledPluginsStatus() {
         ResponseCtx ctx = new ResponseCtx();
+        if (!caller.get().admin()) {
+            // The status names plugin files and carries their compile and load errors; admins only.
+            ctx.setStatus(403);
+            ctx.setMessage("Plugin status is available to administrators only");
+            return ctx;
+        }
         ctx.setStatus(200);
         ctx.setMessage(PluginReports.reloadMessage(engine.snapshot()));
         return ctx;
