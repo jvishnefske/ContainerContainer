@@ -23,13 +23,17 @@ Each item is checked only when a named test demonstrates it.
 
 ### Build and deployment
 
-- [ ] B1. The fork builds the WAR from source with JDK 25 and Maven, resolving
+- [x] B1. The fork builds the WAR from source with JDK 25 and Maven, resolving
       dependencies only from Maven Central and JFrog's public `jfrog-jars`
       repository.
+      Shown by a full reactor `mvn install` in `maven:3.9-eclipse-temurin-25`
+      with only those two repositories configured (all 34 modules build).
 - [ ] B2. The fork's jars, overlaid on the stock 7.161.26 image, start
       Artifactory with existing data and no schema migration.
-- [ ] B3. With no plugins present the fork behaves as stock OSS: the existing
+- [x] B3. With no plugins present the fork behaves as stock OSS: the existing
       unit test suite of every changed module passes.
+      Full suites on 2026-11-11: backend/core 10435 run 0 failed, web/rest 1205
+      run 0 failed, web/rest-ui 3068 run 0 failed (3 skipped, as upstream).
 
 ### Groovy plugin engine
 

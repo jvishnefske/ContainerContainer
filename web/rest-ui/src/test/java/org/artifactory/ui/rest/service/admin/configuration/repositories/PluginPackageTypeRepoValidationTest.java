@@ -10,6 +10,9 @@
 package org.artifactory.ui.rest.service.admin.configuration.repositories;
 
 import org.apache.http.HttpStatus;
+import org.artifactory.aol.AolService;
+import org.artifactory.api.context.ArtifactoryContextThreadBinder;
+import org.artifactory.spring.InternalArtifactoryContext;
 import org.artifactory.addon.plugin.pkgtype.PluginPackageType;
 import org.artifactory.addon.plugin.pkgtype.PluginPackageTypes;
 import org.artifactory.addon.plugin.pkgtype.impl.PluginPackageTypeRegistryImpl;
@@ -29,6 +32,7 @@ import org.artifactory.ui.rest.model.admin.configuration.repository.RepositoryCo
 import org.artifactory.ui.rest.service.admin.configuration.repositories.util.CreateRepoConfigHelper;
 import org.artifactory.ui.rest.service.admin.configuration.repositories.util.UpdateRepoConfigHelper;
 import org.artifactory.ui.rest.service.admin.configuration.repositories.util.validator.RepoConfigValidator;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -61,8 +65,21 @@ class PluginPackageTypeRepoValidationTest extends ArtifactoryHomeBoundJUnitTest 
 
     @BeforeEach
     void setUp() {
+        // Bind a context the way RepoConfigValidatorTest does, so classes this test loads first (for example
+        // RepoConfigDefaultValues, whose statics are read once per JVM) initialize against a complete environment
+        // and do not leave null defaults behind for later test classes in the same fork.
+        InternalArtifactoryContext context = mock(InternalArtifactoryContext.class);
+        AolService aolService = mock(AolService.class);
+        when(aolService.isAol()).thenReturn(false);
+        when(context.beanForType(AolService.class)).thenReturn(aolService);
+        ArtifactoryContextThreadBinder.bind(context);
         validator = new RepoConfigValidator();
         validator.setPluginPackageTypeRegistry(registry);
+    }
+
+    @AfterEach
+    void tearDown() {
+        ArtifactoryContextThreadBinder.unbind();
     }
 
     private static RepoConfig genericConfig(String key, String pluginType) {
