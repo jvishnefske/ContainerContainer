@@ -36,7 +36,9 @@ import org.codehaus.groovy.runtime.typehandling.DefaultTypeTransformation;
  *         declines (normal Generic handling); a {@link CancelException} sets its status and message on the
  *         response and counts as handled.</li>
  *     <li>upload: an {@link UploadDecision} is used as is; {@code null} accepts. Any other value or a failure is
- *         reported and accepts. A {@link CancelException} rejects with its status (403 when it is not 4xx/5xx).</li>
+ *         reported and fails closed, rejecting the upload with 500, because a handler that enforces an upload
+ *         policy must not be bypassed by its own bug. A {@link CancelException} rejects with its status (403 when
+ *         it is not 4xx/5xx).</li>
  *     <li>index: failures, including cancellation, are reported; there is no request left to fail.</li>
  * </ul>
  */
@@ -119,7 +121,7 @@ public final class PackageTypeDelegate {
             case HookOutcome.Completed completed -> toDecision(completed.value(), what);
             case HookOutcome.Failed failed -> {
                 reporter.report(pluginName, what, failed.error());
-                yield UploadDecision.accept();
+                yield UploadDecision.reject(500, "Upload refused: upload handler of package type failed");
             }
             case HookOutcome.Cancelled cancelled -> UploadDecision.reject(
                     rejectStatus(cancelled.cancel().getErrorCode()), String.valueOf(cancelled.cancel().getMessage()));
@@ -143,8 +145,9 @@ public final class PackageTypeDelegate {
             return decision;
         }
         reporter.report(pluginName, what, new IllegalStateException(
-                "upload handler returned " + value.getClass().getName() + ", expected UploadDecision; accepting"));
-        return UploadDecision.accept();
+                "upload handler returned " + value.getClass().getName()
+                        + ", expected UploadDecision; refusing the upload"));
+        return UploadDecision.reject(500, "Upload refused: upload handler returned an invalid decision");
     }
 
     /** @return {@code status} when it is a valid reject status (4xx or 5xx), otherwise 403 */

@@ -159,9 +159,23 @@ class PackageTypeDslTest {
     }
 
     @Test
-    void uploadHandlerReturningSomethingElseIsReportedAndAccepts() {
-        assertInstanceOf(UploadDecision.Accept.class, type.upload().orElseThrow().decide(request, path("weird")));
+    void uploadHandlerReturningSomethingElseIsReportedAndFailsClosed() {
+        UploadDecision.Reject reject = assertInstanceOf(UploadDecision.Reject.class,
+                type.upload().orElseThrow().decide(request, path("weird")));
+        assertEquals(500, reject.status());
         assertEquals(1, rig.reports.size());
+    }
+
+    @Test
+    void uploadHandlerThatThrowsIsReportedAndFailsClosed() throws Exception {
+        rig.write("throwing.groovy", "packageType('throwing') { upload { request, repoPath -> "
+                + "throw new IllegalStateException('plugin bug') } }");
+        rig.reload();
+        PluginPackageType throwing = rig.registry.find("throwing").orElseThrow();
+        UploadDecision.Reject reject = assertInstanceOf(UploadDecision.Reject.class,
+                throwing.upload().orElseThrow().decide(request, path("a.tgz")));
+        assertEquals(500, reject.status());
+        assertTrue(rig.reports.stream().anyMatch(r -> r.pluginName().equals("throwing")), rig.reports.toString());
     }
 
     @Test
