@@ -28,7 +28,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.artifactory.addon.AddonsManager;
 import org.artifactory.addon.license.LicenseStatus;
+import org.artifactory.addon.plugin.PluginsAddon;
 import org.artifactory.addon.plugin.ResponseCtx;
 import org.artifactory.api.download.FolderDownloadResult;
 import org.artifactory.api.rest.artifact.ItemPermissions;
@@ -44,24 +46,62 @@ import org.artifactory.rest.resource.artifact.legacy.DownloadResource;
 import org.artifactory.security.permissions.PermissionTargetModel;
 import org.jfrog.common.StringList;
 import org.jfrog.common.archive.ArchiveType;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.UnsupportedEncodingException;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * Default implementation of the rest add-on
+ * Default implementation of the rest add-on.
+ *
+ * <p>Almost every method throws {@link MissingRestAddonException}. The user-plugin endpoints are the
+ * exception: plugin execution, reload, plugin info and plugin status are forwarded to the
+ * {@link PluginsAddon} (the fork's Groovy plugin engine) when a non-default one is installed. With the stock
+ * no-op {@code PluginsAddonDefaultImpl}, or when this class is built without an {@link AddonsManager}, they
+ * keep throwing {@link MissingRestAddonException}. Deploying, downloading and deleting plugin files still
+ * throw.
  *
  * @author Yoav Landman
  */
 @Component
 public class RestAddonDefaultImpl implements RestAddon {
+
+    private final AddonsManager addonsManager;
+
+    /** Creates an instance with no plugin engine; every method throws {@link MissingRestAddonException}. */
+    public RestAddonDefaultImpl() {
+        this(null);
+    }
+
+    /**
+     * @param addonsManager used to look up the {@link PluginsAddon} serving the user-plugin endpoints;
+     *                      {@code null} disables them; injected lazily to avoid construction cycles
+     */
+    @Autowired
+    public RestAddonDefaultImpl(@Lazy @Nullable AddonsManager addonsManager) {
+        this.addonsManager = addonsManager;
+    }
+
+    /** @return the installed plugin engine, or throws {@link MissingRestAddonException} when there is none */
+    private PluginsAddon pluginEngine() {
+        if (addonsManager == null) {
+            throw new MissingRestAddonException();
+        }
+        PluginsAddon plugins = addonsManager.addonByType(PluginsAddon.class);
+        if (plugins == null || plugins.isDefault()) {
+            throw new MissingRestAddonException();
+        }
+        return plugins;
+    }
 
     @Override
     public boolean isDefault() {
@@ -186,7 +226,7 @@ public class RestAddonDefaultImpl implements RestAddon {
     @Override
     public ResponseCtx runPluginExecution(String executionName, String method, Map params, ResourceStreamHandle body,
             boolean async) {
-        throw new MissingRestAddonException();
+        return pluginEngine().execute(executionName, method, params, body, async);
     }
 
     @Override
@@ -263,7 +303,12 @@ public class RestAddonDefaultImpl implements RestAddon {
 
     @Override
     public Response getUserPluginInfo(@Nullable String pluginType) {
-        throw new MissingRestAddonException();
+        PluginsAddon plugins = pluginEngine();
+        Map<String, Object> info = new LinkedHashMap<>(plugins.getPluginInfo(pluginType));
+        if (pluginType == null) {
+            info.put("plugins", plugins.getPluginsInfoSupportBundleDumpAsMap());
+        }
+        return Response.ok(info, MediaType.APPLICATION_JSON_TYPE).build();
     }
 
     @Override
@@ -295,7 +340,7 @@ public class RestAddonDefaultImpl implements RestAddon {
 
     @Override
     public ResponseCtx reloadPlugins(boolean internal) {
-        throw new MissingRestAddonException();
+        return pluginEngine().reloadPlugins(true, internal);
     }
 
     @Override
@@ -323,7 +368,7 @@ public class RestAddonDefaultImpl implements RestAddon {
 
     @Override
     public ResponseCtx getPluginStatus() {
-        throw new MissingRestAddonException();
+        return pluginEngine().getInstalledPluginsStatus();
     }
 
     @Override
