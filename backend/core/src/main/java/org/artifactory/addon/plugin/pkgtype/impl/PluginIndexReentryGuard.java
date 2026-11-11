@@ -16,9 +16,9 @@ import org.springframework.stereotype.Component;
  * the handler makes to that repository do not schedule the handler again.
  *
  * <p>Storage interceptors run synchronously on the thread that writes, so a thread-local mark set around the handler
- * call is seen by every {@code afterCreate} the handler's own writes cause. The mark is cleared in a {@code finally}
- * block and restored to its previous value, so nesting (an index handler of one repository writing to another
- * plugin-typed repository) is handled.
+ * call is seen by every storage event (create, copy, move, delete) the handler's own changes cause. The mark is
+ * cleared in a {@code finally} block and restored to its previous value, so nesting (an index handler of one
+ * repository writing to another plugin-typed repository) is handled.
  */
 @Component
 public class PluginIndexReentryGuard {

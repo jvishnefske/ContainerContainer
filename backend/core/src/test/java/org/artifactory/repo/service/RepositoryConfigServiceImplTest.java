@@ -13,6 +13,7 @@ import org.artifactory.addon.AddonsManager;
 import org.artifactory.addon.HaAddon;
 import org.artifactory.addon.curation.CurationAddon;
 import org.artifactory.addon.ha.HaCommonAddon;
+import org.artifactory.addon.plugin.pkgtype.PluginPackageTypes;
 import org.artifactory.addon.xray.XrayAddon;
 import org.artifactory.api.config.CentralConfigService;
 import org.artifactory.api.config.RepositoryConfigService;
@@ -2225,6 +2226,57 @@ class RepositoryConfigServiceImplTest extends ArtifactoryHomeBoundJUnitTest {
         } finally {
             ArtifactoryContextThreadBinder.unbind();
         }
+    }
+
+    /** Upserts {@code newRepoConfig} over a stored Generic local repo of plugin package type "simple". */
+    private RepoConfig upsertOverPluginTypedRepo(LocalRepoConfig newRepoConfig) {
+        SecurityService securityService = mock(SecurityService.class);
+        when(securityService.isAnyProjectAdmin()).thenReturn(true);
+        when(context.beanForType(SecurityService.class)).thenReturn(securityService);
+        LocalRepoConfig oldRepoConfig = LocalRepoConfig.create("repoKey", Generic);
+        oldRepoConfig.getPackageTypeConfig().put(PluginPackageTypes.CONFIG_KEY, "simple");
+        DbRepositoryConfig localRepo = new DbRepositoryConfig();
+        localRepo.setKey("repoKey");
+        localRepo.setPackageType(Generic.toString());
+        localRepo.setType(LOCAL.typeNameLowercase());
+        when(storageService.getAllBasicRepoConfigs()).thenReturn(Set.of(localRepo));
+        when(storageService.getAllRepositories()).thenReturn(
+                List.of(repositoryConfigMapper.repositoryConfigToDbRepositoryConfig(oldRepoConfig)));
+
+        RepositoryConfigServiceImpl repositoryConfigService = createService();
+        repositoryConfigService.setConfigValidationService(new ConfigValidationService());
+        repositoryConfigService.upsertRepoConfig(newRepoConfig);
+
+        ArgumentCaptor<Set<DbRepositoryConfig>> update = ArgumentCaptor.forClass(Set.class);
+        verify(storageService).flushBulkChanges(any(), update.capture(), any(), any(), any());
+        assertEquals(1, update.getValue().size());
+        return repositoryConfigMapper.dbInfoBlobToRepositoryConfig(update.getValue().iterator().next());
+    }
+
+    @Test
+    void upsertWithoutPluginPackageTypeKeepsStoredType() {
+        // A configuration rebuilt from the UI model has no pluginPackageType entry.
+        LocalRepoConfig newRepoConfig = LocalRepoConfig.create("repoKey", Generic);
+        newRepoConfig.getBaseConfig().setDescription("edited in the UI");
+        RepoConfig saved = upsertOverPluginTypedRepo(newRepoConfig);
+        assertEquals("simple", saved.getPackageTypeConfig().get(PluginPackageTypes.CONFIG_KEY));
+        assertEquals("edited in the UI", saved.getBaseConfig().getDescription());
+    }
+
+    @Test
+    void upsertChangingPluginPackageTypeIsHonoured() {
+        LocalRepoConfig changed = LocalRepoConfig.create("repoKey", Generic);
+        changed.getPackageTypeConfig().put(PluginPackageTypes.CONFIG_KEY, "other");
+        assertEquals("other", upsertOverPluginTypedRepo(changed).getPackageTypeConfig()
+                .get(PluginPackageTypes.CONFIG_KEY));
+    }
+
+    @Test
+    void upsertClearingPluginPackageTypeRemovesIt() {
+        LocalRepoConfig cleared = LocalRepoConfig.create("repoKey", Generic);
+        cleared.getPackageTypeConfig().put(PluginPackageTypes.CONFIG_KEY, "");
+        assertFalse(upsertOverPluginTypedRepo(cleared).getPackageTypeConfig()
+                .containsKey(PluginPackageTypes.CONFIG_KEY));
     }
 
     @ParameterizedTest

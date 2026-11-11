@@ -123,11 +123,25 @@ Each item is checked only when a named test demonstrates it.
       Evidence: `UploadServiceImplPluginPackageTypeTest#acceptLeavesRequestUnchanged`,
       `#rejectSendsStatusAndStoresNothing`, `#rewriteInSameRepoTranslatesTargetPath`
       and `#rewriteToOtherRepoRejectedWith400`.
-- [x] R5. After an artifact is stored in a plugin-typed repository, the type's
-      `index` handler runs asynchronously, so it can maintain metadata files
-      such as an index.
-      Evidence: `PluginPackageTypeIndexInterceptorTest#indexRunsOnceAndNotForItsOwnWrites`
-      and `#dispatchIsAsyncAfterCommit`.
+- [x] R5. Whenever the files of a local plugin-typed repository change, the
+      type's `index` handler runs asynchronously after the change commits, so
+      it can maintain metadata files such as an index. The events covered are
+      a file deployed into the repository, copied into it or moved into it
+      (the handler gets the destination path), and a file moved out of it or
+      deleted from it, including each file of a deleted folder (the handler
+      gets the removed path). A move within the repository reports both
+      paths. Folder events and trash-can items are not reported, and the
+      handler's own writes, moves and deletes in the repository do not
+      trigger it again.
+      Evidence: `PluginPackageTypeIndexInterceptorTest#indexRunsOnceAndNotForItsOwnWrites`,
+      `#dispatchIsAsyncAfterCommit`, `#copyIntoPluginRepoIndexesDestination`,
+      `#moveIntoPluginRepoIndexesDestination`,
+      `#moveOutOfPluginRepoIndexesSourceWithRemovedPath`,
+      `#moveWithinPluginRepoReportsRemovedAndNewPath`,
+      `#deleteFromPluginRepoIndexesRemovedPath`,
+      `#deleteThatIsPartOfAMoveIsLeftToTheMove`,
+      `#folderCopyMoveDeleteAreIgnored`,
+      `#handlersOwnMovesAndDeletesDoNotRetrigger` and `#affectedPathsDecision`.
 - [x] R6. If the plugin is removed, a repository of its type keeps working as
       plain Generic and its stored artifacts stay intact.
       Evidence: `DownloadServiceImplPluginPackageTypeTest#unregisteredTypeFallsThroughToGeneric`,
@@ -138,6 +152,19 @@ Each item is checked only when a named test demonstrates it.
       and `#updateKeepingTypeOfRemovedPluginAccepted`.
 - [ ] R7. A worked example plugin ships under `plugins/examples/` and defines a
       simple package type with an index, covered by an integration test.
+- [x] R8. Editing a plugin-typed repository keeps its plugin package type
+      unless the update itself sets or clears it. The UI repository editor
+      has no field for the key and rebuilds `packageTypeConfig` from its
+      model, so single-repository updates in `RepositoryConfigServiceImpl`
+      carry the stored type over when the update does not mention the key; a
+      blank or null value clears it. Bulk upserts and imports store the
+      configuration as given.
+      Evidence: `PluginPackageTypesTest#updateWithoutTheKeyKeepsStoredType`,
+      `#updateSettingTheKeyWins`, `#updateWithBlankOrNullValueClearsTheKey`,
+      `RepositoryConfigServiceImplTest#upsertWithoutPluginPackageTypeKeepsStoredType`,
+      `#upsertChangingPluginPackageTypeIsHonoured`,
+      `#upsertClearingPluginPackageTypeRemovesIt` and
+      `FederationRoundTripTest#uiEditOmitsPluginPackageTypeAndBackendMergeKeepsIt`.
 
 ## Out of scope for the first iteration
 
