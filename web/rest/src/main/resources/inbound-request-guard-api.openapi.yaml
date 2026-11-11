@@ -1,0 +1,261 @@
+openapi: 3.0.3
+info:
+  title: Inbound Request Guard API
+  description: |
+    Manage the rules that block incoming HTTP requests to Artifactory.
+    The guard inspects every inbound request and rejects those that match any of:
+      - a configured header name (presence-only, value is ignored — case-insensitive),
+      - a configured `User-Agent` substring (case-insensitive), or
+      - a configured client IP address or CIDR range (IPv4 or IPv6 — the client IP is resolved
+        via `HttpUtils.getRemoteClientAddress`, so `X-Forwarded-For` is honored when present).
+    Three modes are supported:
+      - `OFF`     – the guard is disabled, every request is allowed through.
+      - `SHADOW`  – the guard logs would-be blocks but every request is still allowed through.
+      - `ACTIVE`  – the guard returns 403 to matching requests and short-circuits the filter chain.
+  version: "1.0.0"
+  contact:
+    name: Hussein Alshqerat
+
+servers:
+  - url: http://localhost:8082/artifactory
+    description: Local development instance
+  - url: https://{instance}.jfrog.io/artifactory
+    description: JFrog SaaS
+    variables:
+      instance:
+        default: mycompany
+
+security:
+  - basicAuth: []
+  - bearerAuth: []
+  - apiKey: []
+
+tags:
+  - name: Inbound Request Guard
+    description: Rules that block incoming requests by header name or User-Agent substring
+
+paths:
+  /api/system/inboundRequestGuardTriggers:
+    get:
+      operationId: getInboundRequestGuardTriggers
+      summary: Get the current inbound-guard triggers
+      description: |
+        Returns the persisted triggers config (mode, header names, User-Agent substrings).
+        Requires the caller to be a dashboard user; otherwise responds 403.
+      tags: [Inbound Request Guard]
+      responses:
+        '200':
+          description: Triggers retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboundRequestGuardTriggersConfig'
+              examples:
+                shadowDefaults:
+                  $ref: '#/components/examples/ShadowDefaults'
+                activeWithRules:
+                  $ref: '#/components/examples/ActiveWithRules'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    put:
+      operationId: updateInboundRequestGuardTriggers
+      summary: Replace the inbound-guard triggers
+      description: |
+        Persists a new triggers config. The body fully replaces the previous config
+        (no partial merge). Returns the persisted config — header names and User-Agent
+        substrings are normalised to lowercase on persistence (matching is case-insensitive);
+        IP / CIDR entries are validated and stored as-entered.
+        Requires the caller to be a dashboard user; otherwise responds 403.
+        Setting `mode=OFF` makes the guard inert without removing the rules.
+        Invalid `ipAddresses` entries (not a valid IP or CIDR) cause the request to be rejected
+        with a 400 — the error message names the offending entry.
+      tags: [Inbound Request Guard]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InboundRequestGuardTriggersConfig'
+            examples:
+              switchToActive:
+                summary: Promote rules from SHADOW to ACTIVE enforcement
+                value:
+                  mode: ACTIVE
+                  headerNames:
+                    - "X-Bad-Tool"
+                    - "X-Internal-Debug"
+                  userAgentSubstrings:
+                    - "badtool"
+                    - "leaked-scanner"
+                  ipAddresses:
+                    - "203.0.113.0/24"
+                    - "2001:db8::/32"
+              disableGuard:
+                summary: Disable the guard without losing the rules
+                value:
+                  mode: OFF
+                  headerNames: ["x-bad-tool"]
+                  userAgentSubstrings: ["badtool"]
+                  ipAddresses: ["203.0.113.0/24"]
+      responses:
+        '200':
+          description: Triggers updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboundRequestGuardTriggersConfig'
+              examples:
+                activeWithRules:
+                  $ref: '#/components/examples/ActiveWithRules'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: Username and password (for local development)
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Artifactory access token
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-JFrog-Art-Api
+      description: Artifactory API key
+
+  schemas:
+    InboundRequestGuardTriggersConfig:
+      type: object
+      description: Triggers config persisted by the inbound request guard.
+      properties:
+        mode:
+          $ref: '#/components/schemas/Mode'
+        headerNames:
+          type: array
+          description: |
+            Case-insensitive HTTP header names. A request matches when it carries any of
+            these header names (the value is irrelevant). Values are normalised to lowercase
+            on persistence.
+          items:
+            type: string
+          uniqueItems: true
+          example:
+            - "x-bad-tool"
+            - "x-internal-debug"
+        userAgentSubstrings:
+          type: array
+          description: |
+            Case-insensitive substrings checked against the request's `User-Agent` header.
+            A request matches when its User-Agent contains any of the substrings. Values
+            are normalised to lowercase on persistence.
+          items:
+            type: string
+          uniqueItems: true
+          example:
+            - "badtool"
+            - "leaked-scanner"
+        ipAddresses:
+          type: array
+          description: |
+            Client IP addresses (single or CIDR) to block. Accepts both `192.0.2.5` and
+            `203.0.113.0/24` forms, IPv4 *and* IPv6 (`2001:db8::1`, `2001:db8::/32`). The
+            client IP is resolved via `HttpUtils.getRemoteClientAddress`, so `X-Forwarded-For`
+            is honored when present (typical when Artifactory sits behind a reverse proxy).
+            Invalid entries are rejected with 400 on PUT.
+          items:
+            type: string
+          uniqueItems: true
+          example:
+            - "203.0.113.0/24"
+            - "198.51.100.5"
+            - "2001:db8::/32"
+
+    Mode:
+      type: string
+      description: |
+        Run mode of the inbound request guard.
+        - `OFF`    – fully inert; all requests pass through.
+        - `SHADOW` – evaluates rules and logs would-be blocks, but every request still passes through.
+        - `ACTIVE` – evaluates rules and returns 403 to matching requests.
+      enum: [OFF, SHADOW, ACTIVE]
+      default: SHADOW
+
+    ErrorResponse:
+      type: object
+      properties:
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              status:
+                type: integer
+              message:
+                type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request body — bad mode value, or unparseable IP/CIDR in `ipAddresses`.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            errors:
+              - status: 400
+                message: "Invalid IP address or CIDR range in inbound guard config: 'not-a-cidr'"
+
+    Unauthorized:
+      description: Not authenticated
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            errors:
+              - status: 401
+                message: "Authentication required"
+
+    Forbidden:
+      description: Caller is not a dashboard user
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            errors:
+              - status: 403
+                message: "Only dashboard users can view inbound request guard triggers"
+
+  examples:
+    ShadowDefaults:
+      summary: Default config after installation (SHADOW, no rules)
+      value:
+        mode: SHADOW
+        headerNames: []
+        userAgentSubstrings: []
+        ipAddresses: []
+
+    ActiveWithRules:
+      summary: Active enforcement with header, User-Agent, and IP/CIDR rules
+      value:
+        mode: ACTIVE
+        headerNames:
+          - "x-bad-tool"
+          - "x-internal-debug"
+        userAgentSubstrings:
+          - "badtool"
+          - "leaked-scanner"
+        ipAddresses:
+          - "203.0.113.0/24"
+          - "2001:db8::/32"

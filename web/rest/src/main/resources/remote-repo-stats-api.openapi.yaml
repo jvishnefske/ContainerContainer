@@ -1,0 +1,791 @@
+openapi: 3.0.3
+info:
+  title: Remote Repo Stats API
+  description: |
+    Query aggregated statistics for Artifactory remote repositories.
+    Supports filtering by repo key, package type, error rate, and status code pattern.
+    Both GET (query params) and POST (form-urlencoded) are supported with identical semantics.
+  version: "1.0.0"
+  contact:
+    name: Hussein Alshqerat
+
+servers:
+  - url: http://localhost:8082/artifactory
+    description: Local development instance
+  - url: https://{instance}.jfrog.io/artifactory
+    description: JFrog SaaS
+    variables:
+      instance:
+        default: mycompany
+
+security:
+  - basicAuth: []
+  - bearerAuth: []
+  - apiKey: []
+
+tags:
+  - name: Remote Stats
+    description: Remote repository usage statistics
+
+paths:
+  /api/v1/stats/remotes:
+    get:
+      operationId: queryRemoteStats
+      summary: Query remote repository statistics
+      description: |
+        Returns aggregated statistics for remote repositories within the specified
+        time range. Includes a global summary and per-repo breakdown. Use query
+        parameters to filter, sort, and paginate.
+      tags: [Remote Stats]
+      parameters:
+        - $ref: '#/components/parameters/startDate'
+        - $ref: '#/components/parameters/endDate'
+        - $ref: '#/components/parameters/repoKeys'
+        - $ref: '#/components/parameters/packageTypes'
+        - $ref: '#/components/parameters/minErrorRate'
+        - $ref: '#/components/parameters/statusPattern'
+        - $ref: '#/components/parameters/includeStatusBreakdown'
+        - $ref: '#/components/parameters/includeDailyBreakdown'
+        - $ref: '#/components/parameters/sortBy'
+        - $ref: '#/components/parameters/order'
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Stats retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteRepoStatsResponse'
+              examples:
+                minimal:
+                  $ref: '#/components/examples/MinimalResponse'
+                withStatusBreakdown:
+                  $ref: '#/components/examples/WithStatusBreakdown'
+                singleRepoFull:
+                  $ref: '#/components/examples/SingleRepoFull'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      operationId: queryRemoteStatsPost
+      summary: Query remote repository statistics (form-encoded)
+      description: |
+        Same as the GET endpoint but accepts parameters as form fields.
+        Use this when query strings would be too long (e.g. many repo keys).
+      tags: [Remote Stats]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RemoteRepoStatsFormParams'
+      responses:
+        '200':
+          description: Stats retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteRepoStatsResponse'
+              examples:
+                minimal:
+                  $ref: '#/components/examples/MinimalResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: Username and password (for local development)
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Artifactory access token
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-JFrog-Art-Api
+      description: Artifactory API key
+
+  parameters:
+    startDate:
+      name: startDate
+      in: query
+      description: Start of time window (ISO 8601). Defaults to 24 hours ago.
+      schema:
+        type: string
+        format: date-time
+        example: "2026-02-15T00:00:00Z"
+
+    endDate:
+      name: endDate
+      in: query
+      description: End of time window (ISO 8601). Defaults to now.
+      schema:
+        type: string
+        format: date-time
+        example: "2026-02-22T00:00:00Z"
+
+    repoKeys:
+      name: repoKeys
+      in: query
+      description: Comma-separated list of repository keys to filter (exact match).
+      schema:
+        type: string
+        example: "npm-remote,maven-central"
+
+    packageTypes:
+      name: packageTypes
+      in: query
+      description: Comma-separated list of package types to filter.
+      schema:
+        type: string
+        example: "maven,npm"
+
+    minErrorRate:
+      name: minErrorRate
+      in: query
+      description: Only include repos with error rate >= this value (0.0–1.0).
+      schema:
+        type: number
+        format: float
+        minimum: 0.0
+        maximum: 1.0
+        example: 0.5
+
+    statusPattern:
+      name: statusPattern
+      in: query
+      description: |
+        Filter repos that have matching status codes.
+        Supports: exact code (`404`), group shorthand (`4xx`),
+        comma-separated (`404,503`), or regex (`5.*`).
+      schema:
+        type: string
+        example: "404,503"
+
+    includeStatusBreakdown:
+      name: includeStatusBreakdown
+      in: query
+      description: Include `byStatus` and `byStatusGroup` per repo and per day.
+      schema:
+        type: boolean
+        default: false
+
+    includeDailyBreakdown:
+      name: includeDailyBreakdown
+      in: query
+      description: Include `daily` array per repo with per-day metrics.
+      schema:
+        type: boolean
+        default: false
+
+    sortBy:
+      name: sortBy
+      in: query
+      description: Field to sort repos by.
+      schema:
+        type: string
+        enum: [totalRequests, errorRate, avgResponseTime, avgTtfb, totalResponseSize]
+        default: totalRequests
+
+    order:
+      name: order
+      in: query
+      description: Sort direction.
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: desc
+
+    offset:
+      name: offset
+      in: query
+      description: Pagination offset.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+    limit:
+      name: limit
+      in: query
+      description: Page size (1–100).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+
+  schemas:
+    RemoteRepoStatsFormParams:
+      type: object
+      properties:
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        repoKeys:
+          type: string
+        packageTypes:
+          type: string
+        minErrorRate:
+          type: number
+          format: float
+        statusPattern:
+          type: string
+        includeStatusBreakdown:
+          type: boolean
+          default: false
+        includeDailyBreakdown:
+          type: boolean
+          default: false
+        sortBy:
+          type: string
+          enum: [totalRequests, errorRate, avgResponseTime, avgTtfb, totalResponseSize]
+          default: totalRequests
+        order:
+          type: string
+          enum: [asc, desc]
+          default: desc
+        offset:
+          type: integer
+          default: 0
+        limit:
+          type: integer
+          default: 50
+
+    RemoteRepoStatsResponse:
+      type: object
+      required: [timeRange, pagination, summary, repos]
+      properties:
+        timeRange:
+          $ref: '#/components/schemas/TimeRange'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        summary:
+          $ref: '#/components/schemas/Summary'
+        repos:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepoStats'
+
+    TimeRange:
+      type: object
+      required: [startDate, endDate]
+      properties:
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+
+    Pagination:
+      type: object
+      required: [offset, limit, total]
+      properties:
+        offset:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+          description: Total number of repos matching the filters.
+
+    Summary:
+      type: object
+      description: Aggregated totals across all matched repos.
+      required:
+        - totalRequests
+        - successfulRequests
+        - failedRequests
+        - errorRate
+        - avgResponseTimeMs
+        - avgTtfbMs
+        - totalResponseSize
+        - repoCount
+        - byStatus
+        - byStatusGroup
+      properties:
+        totalRequests:
+          type: integer
+          format: int64
+        successfulRequests:
+          type: integer
+          format: int64
+          description: Sum of 2xx + 3xx counts.
+        failedRequests:
+          type: integer
+          format: int64
+          description: Sum of 4xx + 5xx counts.
+        errorRate:
+          type: number
+          format: double
+          description: failedRequests / totalRequests (0.0–1.0).
+        avgResponseTimeMs:
+          type: integer
+          format: int64
+        avgTtfbMs:
+          type: integer
+          format: int64
+        totalResponseSize:
+          type: integer
+          format: int64
+          description: Total bytes transferred.
+        repoCount:
+          type: integer
+          description: Number of repos matching the filters.
+        byStatus:
+          $ref: '#/components/schemas/ByStatus'
+        byStatusGroup:
+          $ref: '#/components/schemas/ByStatusGroup'
+
+    RepoStats:
+      type: object
+      required:
+        - repoKey
+        - packageType
+        - totalRequests
+        - successfulRequests
+        - failedRequests
+        - errorRate
+        - avgResponseTimeMs
+        - avgTtfbMs
+        - totalResponseSize
+        - avgTransferRate
+      properties:
+        repoKey:
+          type: string
+        packageType:
+          type: string
+        totalRequests:
+          type: integer
+          format: int64
+        successfulRequests:
+          type: integer
+          format: int64
+        failedRequests:
+          type: integer
+          format: int64
+        errorRate:
+          type: number
+          format: double
+        avgResponseTimeMs:
+          type: integer
+          format: int64
+        avgTtfbMs:
+          type: integer
+          format: int64
+        totalResponseSize:
+          type: integer
+          format: int64
+        avgTransferRate:
+          type: integer
+          format: int64
+          description: Bytes per second.
+        byStatus:
+          description: Present only when `includeStatusBreakdown=true`.
+          allOf:
+            - $ref: '#/components/schemas/ByStatus'
+        byStatusGroup:
+          description: Present only when `includeStatusBreakdown=true`.
+          allOf:
+            - $ref: '#/components/schemas/ByStatusGroup'
+        daily:
+          type: array
+          description: Present only when `includeDailyBreakdown=true`.
+          items:
+            $ref: '#/components/schemas/DailyStats'
+
+    DailyStats:
+      type: object
+      required: [date, totalRequests, avgResponseTimeMs, avgTtfbMs, totalResponseSize]
+      properties:
+        date:
+          type: string
+          format: date
+          example: "2026-02-21"
+        totalRequests:
+          type: integer
+          format: int64
+        avgResponseTimeMs:
+          type: integer
+          format: int64
+        avgTtfbMs:
+          type: integer
+          format: int64
+        totalResponseSize:
+          type: integer
+          format: int64
+        byStatus:
+          description: Present only when `includeStatusBreakdown=true`.
+          allOf:
+            - $ref: '#/components/schemas/ByStatus'
+        byStatusGroup:
+          description: Present only when `includeStatusBreakdown=true`.
+          allOf:
+            - $ref: '#/components/schemas/ByStatusGroup'
+
+    ByStatus:
+      type: object
+      description: Flat map of HTTP status code to request count.
+      additionalProperties:
+        type: integer
+        format: int64
+      example:
+        "200": 480000
+        "206": 20000
+        "301": 60000
+        "302": 30000
+        "404": 300000
+
+    ByStatusGroup:
+      type: object
+      description: Flat map of status group (2xx, 3xx, 4xx, 5xx) to request count.
+      properties:
+        2xx:
+          type: integer
+          format: int64
+        3xx:
+          type: integer
+          format: int64
+        4xx:
+          type: integer
+          format: int64
+        5xx:
+          type: integer
+          format: int64
+      example:
+        2xx: 500000
+        3xx: 100000
+        4xx: 330000
+        5xx: 10000
+
+    ErrorResponse:
+      type: object
+      properties:
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              status:
+                type: integer
+              message:
+                type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            errors:
+              - status: 400
+                message: "Invalid minErrorRate: must be between 0.0 and 1.0"
+
+    Unauthorized:
+      description: Not authenticated
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            errors:
+              - status: 401
+                message: "Authentication required"
+
+    Forbidden:
+      description: Not authorized (requires platform/project admin)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            errors:
+              - status: 403
+                message: "Admin privileges required"
+
+  examples:
+    MinimalResponse:
+      summary: Minimal response (default params, no breakdowns)
+      value:
+        timeRange:
+          startDate: "2026-02-21T00:00:00Z"
+          endDate: "2026-02-22T00:00:00Z"
+        pagination:
+          offset: 0
+          limit: 50
+          total: 3
+        summary:
+          totalRequests: 15000
+          successfulRequests: 10500
+          failedRequests: 4500
+          errorRate: 0.3
+          avgResponseTimeMs: 195
+          avgTtfbMs: 170
+          totalResponseSize: 2147483648
+          repoCount: 3
+          byStatus:
+            "200": 9000
+            "206": 500
+            "301": 600
+            "302": 400
+            "404": 3800
+            "401": 500
+            "500": 200
+          byStatusGroup:
+            2xx: 9500
+            3xx: 1000
+            4xx: 4300
+            5xx: 200
+        repos:
+          - repoKey: npm-remote
+            packageType: npm
+            totalRequests: 8000
+            successfulRequests: 5600
+            failedRequests: 2400
+            errorRate: 0.3
+            avgResponseTimeMs: 217
+            avgTtfbMs: 200
+            totalResponseSize: 1073741824
+            avgTransferRate: 568925
+          - repoKey: maven-central
+            packageType: maven
+            totalRequests: 5000
+            successfulRequests: 3500
+            failedRequests: 1500
+            errorRate: 0.3
+            avgResponseTimeMs: 165
+            avgTtfbMs: 140
+            totalResponseSize: 536870912
+            avgTransferRate: 445000
+          - repoKey: pypi-remote
+            packageType: pypi
+            totalRequests: 2000
+            successfulRequests: 1400
+            failedRequests: 600
+            errorRate: 0.3
+            avgResponseTimeMs: 180
+            avgTtfbMs: 155
+            totalResponseSize: 536870912
+            avgTransferRate: 380000
+
+    WithStatusBreakdown:
+      summary: Response with status breakdown enabled
+      value:
+        timeRange:
+          startDate: "2026-02-21T00:00:00Z"
+          endDate: "2026-02-22T00:00:00Z"
+        pagination:
+          offset: 0
+          limit: 50
+          total: 1
+        summary:
+          totalRequests: 8000
+          successfulRequests: 5600
+          failedRequests: 2400
+          errorRate: 0.3
+          avgResponseTimeMs: 217
+          avgTtfbMs: 200
+          totalResponseSize: 1073741824
+          repoCount: 1
+          byStatus:
+            "200": 4800
+            "206": 200
+            "301": 300
+            "302": 200
+            "307": 100
+            "400": 50
+            "401": 150
+            "403": 100
+            "404": 2000
+            "500": 80
+            "502": 10
+            "503": 10
+          byStatusGroup:
+            2xx: 5000
+            3xx: 600
+            4xx: 2300
+            5xx: 100
+        repos:
+          - repoKey: npm-remote
+            packageType: npm
+            totalRequests: 8000
+            successfulRequests: 5600
+            failedRequests: 2400
+            errorRate: 0.3
+            avgResponseTimeMs: 217
+            avgTtfbMs: 200
+            totalResponseSize: 1073741824
+            avgTransferRate: 568925
+            byStatus:
+              "200": 4800
+              "206": 200
+              "301": 300
+              "302": 200
+              "307": 100
+              "400": 50
+              "401": 150
+              "403": 100
+              "404": 2000
+              "500": 80
+              "502": 10
+              "503": 10
+            byStatusGroup:
+              2xx: 5000
+              3xx: 600
+              4xx: 2300
+              5xx: 100
+
+    SingleRepoFull:
+      summary: Single repo with all breakdowns (status + daily)
+      value:
+        timeRange:
+          startDate: "2026-02-20T00:00:00Z"
+          endDate: "2026-02-22T00:00:00Z"
+        pagination:
+          offset: 0
+          limit: 50
+          total: 1
+        summary:
+          totalRequests: 1000
+          successfulRequests: 600
+          failedRequests: 400
+          errorRate: 0.4
+          avgResponseTimeMs: 217
+          avgTtfbMs: 200
+          totalResponseSize: 123456789
+          repoCount: 1
+          byStatus:
+            "200": 480
+            "206": 20
+            "301": 60
+            "302": 30
+            "307": 10
+            "400": 5
+            "401": 15
+            "403": 10
+            "404": 320
+            "500": 30
+            "502": 10
+            "503": 10
+          byStatusGroup:
+            2xx: 500
+            3xx: 100
+            4xx: 350
+            5xx: 50
+        repos:
+          - repoKey: npm-remote
+            packageType: npm
+            totalRequests: 1000
+            successfulRequests: 600
+            failedRequests: 400
+            errorRate: 0.4
+            avgResponseTimeMs: 217
+            avgTtfbMs: 200
+            totalResponseSize: 123456789
+            avgTransferRate: 568925
+            byStatus:
+              "200": 480
+              "206": 20
+              "301": 60
+              "302": 30
+              "307": 10
+              "400": 5
+              "401": 15
+              "403": 10
+              "404": 320
+              "500": 30
+              "502": 10
+              "503": 10
+            byStatusGroup:
+              2xx: 500
+              3xx: 100
+              4xx: 350
+              5xx: 50
+            daily:
+              - date: "2026-02-20"
+                totalRequests: 300
+                avgResponseTimeMs: 230
+                avgTtfbMs: 210
+                totalResponseSize: 41152263
+                byStatus:
+                  "200": 140
+                  "206": 10
+                  "301": 20
+                  "302": 10
+                  "307": 5
+                  "400": 2
+                  "401": 5
+                  "403": 3
+                  "404": 90
+                  "500": 10
+                  "502": 3
+                  "503": 2
+                byStatusGroup:
+                  2xx: 150
+                  3xx: 35
+                  4xx: 100
+                  5xx: 15
+              - date: "2026-02-21"
+                totalRequests: 400
+                avgResponseTimeMs: 210
+                avgTtfbMs: 195
+                totalResponseSize: 41152263
+                byStatus:
+                  "200": 190
+                  "206": 5
+                  "301": 25
+                  "302": 12
+                  "307": 3
+                  "400": 2
+                  "401": 6
+                  "403": 4
+                  "404": 130
+                  "500": 15
+                  "502": 5
+                  "503": 3
+                byStatusGroup:
+                  2xx: 195
+                  3xx: 40
+                  4xx: 142
+                  5xx: 23
+              - date: "2026-02-22"
+                totalRequests: 300
+                avgResponseTimeMs: 204
+                avgTtfbMs: 190
+                totalResponseSize: 41152263
+                byStatus:
+                  "200": 150
+                  "206": 5
+                  "301": 15
+                  "302": 8
+                  "307": 2
+                  "400": 1
+                  "401": 4
+                  "403": 3
+                  "404": 100
+                  "500": 5
+                  "502": 2
+                  "503": 5
+                byStatusGroup:
+                  2xx: 155
+                  3xx: 25
+                  4xx: 108
+                  5xx: 12

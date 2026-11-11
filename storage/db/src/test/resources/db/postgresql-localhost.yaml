@@ -1,0 +1,10 @@
+artifactory:
+  database:
+      type: postgresql
+      driver: org.postgresql.Driver
+      url: jdbc:postgresql://localhost:5432/postgres
+      username: postgres
+      password: password
+      root: postgres
+      rootPassword: password
+      allowNonPostgresql: false

@@ -1,0 +1,13 @@
+{
+    "platform.config.general": {
+        "dateFormat": "dd-MM-yy",
+        "helpLinksEnabled": false,
+        "logo": "http://www.rw-designer.com/icon-image/21555-128x128x32.png"
+    },
+    "platform.config.system.message": {
+        "systemMessageEnabled": false,
+        "systemMessage": "Hello World!",
+        "systemMessageTitle": "COOL",
+        "systemMessageTitleColor": "#429f46"
+    }
+}

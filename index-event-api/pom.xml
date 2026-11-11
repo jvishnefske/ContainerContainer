@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0          http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.artifactory</groupId>
+        <artifactId>artifactory-event-api-parent</artifactId>
+        <!-- Pinned to match event-api-parent/pom.xml. See the comment there. -->
+        <version>1.9.0</version>
+        <relativePath>../event-api-parent</relativePath>
+    </parent>
+
+    <groupId>org.artifactory</groupId>
+    <artifactId>artifactory-index-event-api</artifactId>
+    <packaging>pom</packaging>
+    <version>1.x-SNAPSHOT</version>
+    <name>Packages Index Event Parent</name>
+
+    <properties>
+        <!-- Per-domain values consumed by the shared pluginManagement in
+             artifactory-event-api-parent. The schema-specific openapi.inputSpec
+             is defined in schema/pom.xml because ${project.basedir} resolves to
+             the using project, not the parent. -->
+        <java.package.name>com.jfrog.artifactory.packageindexed</java.package.name>
+        <go.package.name>jfrog.com/jfrog-artifactory-index-event/indexevent</go.package.name>
+        <proto.module.artifactId>package-index-event-proto</proto.module.artifactId>
+    </properties>
+
+    <modules>
+        <module>schema</module>
+        <module>classes</module>
+    </modules>
+</project>

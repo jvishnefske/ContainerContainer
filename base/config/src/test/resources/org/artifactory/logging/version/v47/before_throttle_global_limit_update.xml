@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- // @formatter:off -->
+<configuration debug="false">
+    <contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator"/>
+
+    <!-- Global rate limit: not more than 20 stack trace dumps per 10 minutes -->
+    <property name="throttle-exceptions-global-period" value="${log.exceptions.throttle.global.period:-600000}"/>
+    <property name="throttle-exceptions-global-limit" value="${log.exceptions.throttle.global.limit:-20}"/>
+    <!-- Per-logger rate limit: not more than 5 stack trace dumps per hour (per logger) -->
+    <property name="throttle-exceptions-per-logger-period" value="${log.exceptions.throttle.per-logger.period:-3600000}"/>
+    <property name="throttle-exceptions-per-logger-limit" value="${log.exceptions.throttle.per-logger.limit:-5}"/>
+
+    <evaluator class="org.artifactory.logging.throttle.ThrottlingEvaluator" name="THROTTLE_EXCEPTIONS">
+        <globalPeriod>${throttle-exceptions-global-period}</globalPeriod>
+        <globalLimit>${throttle-exceptions-global-limit}</globalLimit>
+        <perLoggerPeriod>${throttle-exceptions-per-logger-period}</perLoggerPeriod>
+        <perLoggerLimit>${throttle-exceptions-per-logger-limit}</perLoggerLimit>
+    </evaluator>
+    <evaluator class="org.artifactory.logging.throttle.ThrottlingEvaluator" name="THROTTLE_EXCEPTIONS_NO_METRICS">
+        <collectMetrics>false</collectMetrics>
+        <globalPeriod>${throttle-exceptions-global-period}</globalPeriod>
+        <globalLimit>${throttle-exceptions-global-limit}</globalLimit>
+        <perLoggerPeriod>${throttle-exceptions-per-logger-period}</perLoggerPeriod>
+        <perLoggerLimit>${throttle-exceptions-per-logger-limit}</perLoggerLimit>
+    </evaluator>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSS, UTC}Z - %m%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="info">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
+

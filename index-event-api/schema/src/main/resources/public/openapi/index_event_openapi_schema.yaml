@@ -1,0 +1,156 @@
+openapi: 3.0.3
+info:
+    title: Package Event Schema
+    version: 1.3.0
+    description: Schema for package indexed events (create/update/delete) using oneOf + discriminator
+paths: {}
+
+components:
+    schemas:
+
+        # Main envelope - shared fields are defined here for direct access via event.getRepoName() etc.
+        # The oneOf handles the event-specific payload (create or delete)
+        PackageIndexEvent:
+            type: object
+            required: [repoName, repoPackageType]
+            properties:
+                # Shared fields - accessible directly on PackageIndexEvent
+                repoName:
+                    type: string
+                    description: Repository name
+                repoPackageType:
+                    type: string
+                    description: Repository package type
+                project:
+                    type: string
+                    description: Project key
+                stage:
+                    type: array
+                    uniqueItems: true
+                    items:
+                        type: string
+                    description: Stage values (Set semantics)
+                leadFilePath:
+                    type: string
+                    description: Path of the leading file that represented the package/version
+                # Event-specific payloads via oneOf
+                createPackageIndexEvent:
+                    $ref: '#/components/schemas/CreatePackageIndexEvent'
+                deletePackageIndexEvent:
+                    $ref: '#/components/schemas/DeletePackageIndexEvent'
+
+        # CREATE payload - event-specific fields only
+        CreatePackageIndexEvent:
+            type: object
+            properties:
+                storedPackageType:
+                    type: string
+                name:
+                    type: string
+                description:
+                    type: string
+                    description: Package summary or description shown in the UI and MDS
+                version:
+                    type: string
+                modified:
+                    type: string
+                    format: date-time
+                licenses:
+                    type: array
+                    items:
+                        type: string
+                repoType:
+                    type: string
+                    description: Repository type local/remote/virtual
+                qualifiers:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/Qualifier'
+                files:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/FileInfo'
+                tags:
+                    type: array
+                    items:
+                        type: string
+                user_properties:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/UserProperty'
+                internal_properties:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/UserProperty'
+                rating:
+                    type: integer
+                    format: int32
+                buildName:
+                    type: string
+                buildNumber:
+                    type: string
+                buildRepo:
+                    type: string
+                sourcePath:
+                    type: string
+                issuesUrl:
+                    type: string
+                    format: uri
+                downloadUrl:
+                    type: string
+                    format: uri
+                artifactoryId:
+                    type: string
+
+        # DELETE payload - event-specific fields only
+        DeletePackageIndexEvent:
+            type: object
+            properties:
+                storedPackageType:
+                    type: string
+                downloadCount:
+                    type: integer
+                    format: int64
+                    description: Last known download count (optional snapshot)
+                user_properties:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/UserProperty'
+
+        Qualifier:
+            type: object
+            required: [name, value]
+            properties:
+                name:
+                    type: string
+                value:
+                    type: string
+
+        FileInfo:
+            type: object
+            required: [name, sha1, sha256, md5, length, lead]
+            properties:
+                name:
+                    type: string
+                sha1:
+                    type: string
+                sha256:
+                    type: string
+                md5:
+                    type: string
+                length:
+                    type: integer
+                    format: int64
+                lead:
+                    type: boolean
+
+        UserProperty:
+            type: object
+            required: [name, values]
+            properties:
+                name:
+                    type: string
+                values:
+                    type: array
+                    items:
+                        type: string

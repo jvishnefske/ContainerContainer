@@ -1,0 +1,116 @@
+/*
+ *
+ * Artifactory is a binaries repository manager.
+ * Copyright (C) 2018 JFrog Ltd.
+ *
+ * Artifactory is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ * Artifactory is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+package org.artifactory.ui.rest.service.artifacts.deploy;
+
+import lombok.extern.slf4j.Slf4j;
+import org.artifactory.addon.AddonsManager;
+import org.artifactory.addon.ha.HaCommonAddon;
+import org.artifactory.api.config.CentralConfigService;
+import org.artifactory.api.context.ContextHelper;
+import org.artifactory.api.maven.MavenService;
+import org.artifactory.api.repo.RepositoryService;
+import org.artifactory.api.security.SecurityService;
+import org.artifactory.descriptor.repo.RepoType;
+import org.artifactory.rest.common.service.ArtifactoryRestRequest;
+import org.artifactory.rest.common.service.RestResponse;
+import org.artifactory.rest.common.service.RestService;
+import org.artifactory.ui.rest.model.artifacts.deploy.UploadArtifactInfo;
+import org.artifactory.ui.utils.MultiPartUtils;
+import org.artifactory.ui.utils.UnitUtils;
+import org.artifactory.util.CollectionUtils;
+import org.glassfish.jersey.media.multipart.FormDataMultiPart;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+import static java.lang.String.format;
+
+/**
+ * @author Chen Keinan
+ */
+@Slf4j
+@Component
+public class ArtifactUploadService implements RestService {
+
+    private static final String REPO_TYPE_HEADER = "X-ARTIFACTORY-REPOTYPE";
+
+    @Autowired
+    private RepositoryService repositoryService;
+    @Autowired
+    private SecurityService securityService;
+    @Autowired
+    private CentralConfigService centralConfigService;
+    @Autowired
+    private MavenService mavenService;
+    @Autowired
+    private AddonsManager addonsManager;
+
+    @Override
+    public void execute(ArtifactoryRestRequest request, RestResponse response) {
+        if (!repositoryService.hasAnyDeployableRepo()) {
+            String err = format("The user: '%s' has no deploy permissions on any local repository",
+                    securityService.currentUsername());
+            response.error(err).responseCode(HttpServletResponse.SC_FORBIDDEN).buildResponse();
+            log.error(err);
+            return;
+        }
+        String uploadDir = ContextHelper.get().getArtifactoryHome().getTempUploadDir().getAbsolutePath();
+        try {
+            MultiPartUtils.createTempFolderIfNotExist(uploadDir);
+            // get upload model
+            UploadArtifactInfo uploadArtifactInfo = (UploadArtifactInfo) request.getImodel();
+            // save file data tto temp
+            List<String> fileNames = new ArrayList<>();
+            FormDataMultiPart formDataMultiPart = uploadArtifactInfo.fetchFormDataMultiPart();
+            String originalFileName = formDataMultiPart.getFields().get("file")
+                    .get(0).getContentDisposition().getFileName();
+            fileNames.add(originalFileName);
+            MultiPartUtils.saveFileDataToTemp(centralConfigService, formDataMultiPart,
+                    uploadDir, fileNames, true);
+
+            String uniqueFileName = fileNames.size() > 1 ? fileNames.get(1) : originalFileName;
+            File file = new File(uploadDir, uniqueFileName);
+            // get artifact info
+            UnitUtils.populateUnitInfo(file, originalFileName, uploadArtifactInfo, mavenService, getRepoType(request));
+            uploadArtifactInfo.setFileName(uniqueFileName);
+            HaCommonAddon haAddon = addonsManager.addonByType(HaCommonAddon.class);
+            if (haAddon.isHaEnabled()) {
+                uploadArtifactInfo.setHandlingNode(haAddon.getCurrentMemberServerId());
+            }
+            response.iModel(uploadArtifactInfo);
+        } catch (Exception e) {
+            response.error(e.getMessage());
+        }
+    }
+
+    private RepoType getRepoType(ArtifactoryRestRequest request) {
+        List<String> repoTypeHeaders = request.getHttpHeaders().getRequestHeader(REPO_TYPE_HEADER);
+        if (CollectionUtils.isNullOrEmpty(repoTypeHeaders) || repoTypeHeaders.get(0).equals("undefined")) {
+            log.warn("Cannot resolve repo type from upload request.");
+            return null;
+        }
+        return RepoType.valueOf(repoTypeHeaders.get(0));
+    }
+}

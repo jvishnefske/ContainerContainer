@@ -1,0 +1,1 @@
+ALTER TABLE cleanup_run_summary DROP COLUMN estimated_packages_count;

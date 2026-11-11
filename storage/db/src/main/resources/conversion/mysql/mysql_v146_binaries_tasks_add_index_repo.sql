@@ -1,0 +1,1 @@
+ALTER TABLE binaries_tasks ADD INDEX binaries_tasks_repo_key_idx (local_repo_key), ALGORITHM=INPLACE, LOCK=NONE;

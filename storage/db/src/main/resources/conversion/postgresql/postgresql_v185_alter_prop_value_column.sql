@@ -1,0 +1,1 @@
+ALTER TABLE node_props ALTER COLUMN prop_value SET STATISTICS 1000;

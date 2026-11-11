@@ -1,0 +1,121 @@
+/*
+ *
+ * Artifactory is a binaries repository manager.
+ * Copyright (C) 2018 JFrog Ltd.
+ *
+ * Artifactory is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ * Artifactory is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+package org.artifactory.repo;
+
+import org.artifactory.api.module.ModuleInfo;
+import org.artifactory.api.repo.exception.FileExpectedException;
+import org.artifactory.api.repo.exception.RepoRejectException;
+import com.jfrog.ph.acl.virtual.resolution.PackageRepo;
+import org.artifactory.descriptor.repo.RepoDescriptor;
+import org.artifactory.fs.RepoResource;
+import org.artifactory.io.checksum.policy.ChecksumPolicy;
+import org.artifactory.model.RepoConfig;
+import org.artifactory.repo.service.InternalRepositoryService;
+import org.artifactory.repo.service.StoringRepoInitContext;
+import org.artifactory.request.InternalRequestContext;
+
+import jakarta.annotation.Nonnull;
+import org.artifactory.resource.ResourceStreamHandle;
+
+import java.io.IOException;
+
+/**
+ * @author Yoav Landman
+ */
+public interface Repo<T extends RepoDescriptor, S extends RepoConfig> extends PackageRepo {
+    String getKey();
+
+    String getDescription();
+
+    /**
+     * Initialize a new repository.
+     *
+     * @param existenceValidated Represents the existence of a repository in the database. If exists - set to 'true',
+     *                           if doesn't exist or wasn't checked for existence - set to 'false'
+     */
+    void init(boolean existenceValidated);
+
+    /**
+     * Initialize with pre-resolved context (e.g. during rebuild to avoid N×context lookups).
+     *
+     * @param initContext        context from {@link StoringRepoInitContext#create}
+     * @param existenceValidated same as {@link #init(boolean)}
+     */
+    default void init(@Nonnull StoringRepoInitContext initContext, boolean existenceValidated) {
+        init(existenceValidated);
+    }
+
+    void destroy();
+
+    /**
+     * @see org.artifactory.descriptor.repo.RepoDescriptor#isReal()
+     */
+    boolean isReal();
+
+    boolean isLocal();
+
+    boolean isCache();
+
+    InternalRepositoryService getRepositoryService();
+
+    /**
+     * Returns the resource info (not the resource content but the metadata)
+     *
+     * @param context Additional parameters to pass to the repository.
+     * @return RepoResource. UnfoundRepoResource will be returned if the resource not found in this repo.
+     */
+    RepoResource getInfo(InternalRequestContext context) throws FileExpectedException;
+
+    /**
+     * Get the checksum of the resource based on the repository checksum policy (if there is one).
+     *
+     * @param checksumPath The url to the checksum file
+     * @param res          The repo resource of the file the checksum is requested on
+     * @return The checksum value. Might be null
+     * @throws IOException If tried and failed to retrieve the checksum from db/remote source.
+     */
+    String getChecksum(String checksumPath, RepoResource res) throws IOException;
+
+    ResourceStreamHandle getResourceStreamHandle(InternalRequestContext requestContext, RepoResource res)
+            throws IOException, FileExpectedException, RepoRejectException;
+
+    ModuleInfo getItemModuleInfo(String itemPath);
+
+    ModuleInfo getDescriptorModuleInfo(String descriptorPath);
+
+    ModuleInfo getArtifactModuleInfo(String artifactPath);
+
+    RepoPath getRepoPath(String path);
+
+    T getDescriptor();
+
+    S getRepoConfig();
+
+    ChecksumPolicy getChecksumPolicy();
+
+    /**
+     * Remove Repo's HttpClient references from the IdleConnectionMonitorService (when apply).
+     * This method is called from repository cache reload, after replacing config descriptor.
+     * The unreferenced http clients will be deleted eventually by the GC, but will stay open
+     * so we don't interrupt downloads every descriptor reload
+     */
+    void close();
+}

@@ -1,0 +1,1 @@
+ALTER TABLE version_history ADD active NUMBER (1,0) DEFAULT 1;

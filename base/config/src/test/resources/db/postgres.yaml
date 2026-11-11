@@ -1,0 +1,7 @@
+artifactory:
+  database:
+    type: postgresql
+    driver: org.postgresql.Driver
+    url: jdbc:postgresql://localhost:5432/artdbtest
+    username: artifactory
+    password: password

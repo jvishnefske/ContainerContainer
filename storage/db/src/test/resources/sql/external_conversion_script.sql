@@ -1,0 +1,1 @@
+ALTER TABLE nodes ADD COLUMN foo VARCHAR(2);

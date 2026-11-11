@@ -1,0 +1,48 @@
+/*
+ *
+ * Artifactory is a binaries repository manager.
+ * Copyright (C) 2018 JFrog Ltd.
+ *
+ * Artifactory is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ * Artifactory is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+package org.artifactory.api.request;
+
+import org.artifactory.api.repo.Request;
+import org.artifactory.api.repo.exception.FileExpectedException;
+import org.artifactory.request.ArtifactoryRequest;
+
+import java.io.IOException;
+
+/**
+ * User: freds Date: Aug 3, 2008 Time: 7:57:48 PM
+ */
+public interface DownloadService {
+
+    @Request(aggregateEventsByTimeWindow = true)
+    void process(ArtifactoryRequest request, ArtifactoryResponse response) throws IOException, FileExpectedException;
+
+    /**
+     * Runs After Download Error plugins and workers without performing a download. Use when a package handler
+     * already determined the error (e.g. Docker manifest HEAD 404) but must still trigger download error hooks.
+     * <p>
+     * Default is a no-op so {@link DownloadService} remains a functional interface for test lambdas; production
+     * behavior is provided by {@code DownloadServiceImpl}.
+     */
+    default DownloadErrorNotificationResult notifyDownloadError(ArtifactoryRequest request, int status,
+            String reason) {
+        return new DownloadErrorNotificationResult(status, reason);
+    }
+}

@@ -1,0 +1,55 @@
+type: nuget
+url: https://www.nuget.org/ #The URL for the remote repository. Needs to be only HTTP and HTTPS URLs
+username: null   #The remote repository username, when authentication is required
+password: null
+
+assumedOfflinePeriodSecs: 300   #The number of seconds the repository stays in assumed offline state after a connection error. At the end of this time, an online check is attempted in order to reset the offline status. A value of 0 means the repository is never assumed offline.
+# remoteRepoChecksumPolicyType: generate-if-absent | fail | ignore-and-generate | pass-thru   #Only for Maven repositories. The Checksum Policy determines how Artifactory behaves when a client checksum for a remote resource is missing or conflicts with the locally calculated checksum
+# clientTlsCertificate: tls-certificate   #The client TLS certificate (alias) that will be used when authentiacating against the remote resource.
+description: null
+excludesPattern:   #Provides a way to filter out specific repositories when trying to resolve the location of different artifacts (Ant-like pattern)
+includesPattern: "**/*"   #Provides a way to filter out specific repositories when trying to resolve the location of different artifacts (Ant-like pattern)
+blockMismatchingMimeTypes: true   #If set, artifacts will fail to download if a mismatch is detected between requested and received mimetype, according to the list specified in the system properties file under blockedMismatchingMimeTypes. You can override by adding mimetypes to the override list in the mismatchingMimeTypesOverrideList field
+mismatchingMimeTypesOverrideList:    #When set, artifacts will fail to download if a mismatch is detected between the requested and received mime type, according to a list specified in the system.properties file under blockedMismatchingMimeTypes. You can override this setting by adding mime types to this field
+missedRetrievalCachePeriodSecs: 1800   #If a remote repository is missing a requested artifact, Artifactory will return a "404 Not found" error. This response is cached for the period of time specified by this parameter. During that time, Artifactory will not issue new requests for the same artifact. A value of 0 means that the response is not cached and Artifactory will always issue a new request when demanded
+notes:    #A free text field to add additional notes about the repository
+propertySets:
+  p1: "hello"
+proxy: proxy1   #The proxy name configured in the Proxy section to use for accessing the remote resource
+disableProxy: false # Turns off using of proxy for this repository. Prevents proxy updating during system proxy changes.
+repoLayout: nuget-default   #Sets the layout that the repository should use for storing and identifying modules
+retrievalCachePeriodSecs: 7200   #This value refers to the number of seconds to cache metadata files before checking for newer versions on remote server. A value of 0 indicates no caching
+socketTimeoutMillis: 15000   #Network timeout (in ms) to use when establishing a connection and for unanswered requests. Timing out on a network operation is considered a retrieval failure
+unusedArtifactsCleanupPeriodHours: 0   #The number of hours to wait before an artifact is deemed "unused" and eligible for cleanup from the repository. A value of 0 means automatic cleanup of cached artifacts is disabled
+allowAnyHostAuth: false   #Allow credentials of this repository to be used on requests redirected to any other host
+blackedOut: false   #When set, the repository or its local cache do not participate in artifact resolution
+bypassHeadRequests: false   #Before caching an artifact, Artifactory first sends a HEAD request to the remote resource. In some remote resources, HEAD requests are disallowed and therefore rejected, even though downloading the artifact is allowed. When set, Artifactory will bypass the HEAD request and cache the artifact directly using a GET request
+enableCookieManagement: false   #Enables cookie management if the remote repository uses cookies to manage client state
+forceNugetAuthentication: false   #Force basic authentication credentials in order to use this repository
+listRemoteFolderItems: true   #Lists the items of remote folders in simple and list browsing. Required for dynamic resolution that depends on remote folder content information, such as remote Ivy version lookups. The remote content is cached according to the value of the 'Retrieval Cache Period'
+offline: false   #If set, Artifactory does not try to fetch remote artifacts. Only locally-cached artifacts are retrieved
+synchronizeProperties: false   #When set, remote artifacts are fetched along with their properties
+
+xray: #Xray settings for the certain repository
+  enabled: false   #Indicated whether the repository will be indexed and scanned by Xray
+
+nuget: #Only for NuGet repositories
+  downloadContextPath: "api/v2/package"   #The context path prefix through which NuGet downloads are served. For example, the NuGet Gallery download URL is 'https://nuget.org/api/v2/package', so the repository URL should be configured as 'https://nuget.org' and the download context path should be configured as 'api/v2/package'
+  v3FeedUrl: "https://api.nuget.org/v3/index.json"
+  feedContextPath: "api/v2"   #The context path prefix through which the NuGet feeds are served. For example, the NuGet Gallery feed URL is 'https://nuget.org/api/v2', so the repository URL should be configured as 'https://nuget.org' and the feed context path should be configured as 'api/v2'
+  symbolServerUrl: "https://symbols.nuget.org/download/symbols"
+  enableNormalizedVersion: true
+
+downloadRedirect: #Settings for redirecting download requests for direct download from cloud storage
+  enabled: false   #When true, Artifactory will respond to download requests to this repository with an HTTP 302 redirection return code along with a signed URL directing the calling client to download the requested artifact directly from cloud storage.
+priorityResolution: false #Default, applies to all repository types excluding CocoaPods, Git LFS, NuGet V2, Opkg, Rust, Vagrant and VCS repositories
+disableUrlNormalization: false #Default
+
+contentSynchronisation:
+  enabled: false
+  statistics:
+    enabled: false
+  properties:
+    enabled: false
+  source:
+    originAbsenceDetection: true

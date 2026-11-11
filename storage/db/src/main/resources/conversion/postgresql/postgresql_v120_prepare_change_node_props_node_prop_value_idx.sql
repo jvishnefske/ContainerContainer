@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY IF NOT EXISTS pattern_node_props_node_prop_value_idx ON node_props (node_id, prop_key varchar_pattern_ops, prop_value varchar_pattern_ops);

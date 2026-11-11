@@ -1,0 +1,1 @@
+ALTER TABLE distributed_locks SET UNLOGGED;

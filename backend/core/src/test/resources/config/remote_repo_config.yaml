@@ -1,0 +1,91 @@
+type: maven  #The package type
+url: https://jcenter.bintray.com   #The URL for the remote repository. Needs to be only HTTP and HTTPS URLs
+username: user   #The remote repository username, when authentication is required
+password: password   #The remote repository password, when authentication is required
+assumedOfflinePeriodSecs: "300"   #The number of seconds the repository stays in assumed offline state after a connection error. At the end of this time, an online check is attempted in order to reset the offline status. A value of 0 means the repository is never assumed offline.
+remoteRepoChecksumPolicyType: generate-if-absent | fail | ignore-and-generate | pass-thru   #Only for Maven repositories. The Checksum Policy determines how Artifactory behaves when a client checksum for a remote resource is missing or conflicts with the locally calculated checksum
+clientTlsCertificate: tls-certificate   #The client TLS certificate (alias) that will be used when authentiacating against the remote resource.
+description: "Hello world"   #A free text field that describes the content and purpose of the repository
+dockerApiVersion: V1  #Only for Docker repositories. The Docker API version
+excludesPattern: excludingremote1   #Provides a way to filter out specific repositories when trying to resolve the location of different artifacts (Ant-like pattern)
+includesPattern: includingremote1   #Provides a way to filter out specific repositories when trying to resolve the location of different artifacts (Ant-like pattern)
+maxUniqueSnapshots: "0"   #Only for Maven and VCS repositories. Specifies the maximum number of unique snapshots of the same artifact that should be stored. Once this number is reached and a new snapshot is uploaded, the oldest stored snapshot is removed automatically. Default: 0
+maxUniqueTags: "0"   #Only for Docker repositories. Specifies the maximum number of unique snapshots of the same artifact that should be stored. Once this number is reached and a new snapshot is uploaded, the oldest stored snapshot is removed automatically. Default: 0
+blockMismatchingMimeTypes: "true"   #If set, artifacts will fail to download if a mismatch is detected between requested and received mimetype, according to the list specified in the system properties file under blockedMismatchingMimeTypes. You can override by adding mimetypes to the override list in the mismatchingMimeTypesOverrideList field
+mismatchingMimeTypesOverrideList: xml   #When set, artifacts will fail to download if a mismatch is detected between the requested and received mime type, according to a list specified in the system.properties file under blockedMismatchingMimeTypes. You can override this setting by adding mime types to this field
+missedRetrievalCachePeriodSecs: "1800"   #If a remote repository is missing a requested artifact, Artifactory will return a "404 Not found" error. This response is cached for the period of time specified by this parameter. During that time, Artifactory will not issue new requests for the same artifact. A value of 0 means that the response is not cached and Artifactory will always issue a new request when demanded
+notes: "Hello world 2"   #A free text field to add additional notes about the repository
+cdnRedirectRepoConfig:
+    enabled: true
+propertySets:
+    p1: "hello"
+proxy: proxy1   #The proxy name configured in the Proxy section to use for accessing the remote resource
+disableProxy: false # Turns off using of proxy for this repository. Prevents proxy updating during system proxy changes.
+queryParams: query-params&for-my-remote-repo   #Custom HTTP query parameters that will be automatically included in all remote resource requests. For example: param1=val1&param2=val2&param3=val3
+repoLayout: nameremote1   #Sets the layout that the repository should use for storing and identifying modules
+retrievalCachePeriodSecs: "600"   #This value refers to the number of seconds to cache metadata files before checking for newer versions on remote server. A value of 0 indicates no caching
+socketTimeoutMillis: "15000"   #Network timeout (in ms) to use when establishing a connection and for unanswered requests. Timing out on a network operation is considered a retrieval failure
+unusedArtifactsCleanupPeriodHours: "0"   #The number of hours to wait before an artifact is deemed "unused" and eligible for cleanup from the repository. A value of 0 means automatic cleanup of cached artifacts is disabled
+allowAnyHostAuth: "false"   #Allow credentials of this repository to be used on requests redirected to any other host
+blackedOut: "false"   #When set, the repository or its local cache do not participate in artifact resolution
+bypassHeadRequests: "false"   #Before caching an artifact, Artifactory first sends a HEAD request to the remote resource. In some remote resources, HEAD requests are disallowed and therefore rejected, even though downloading the artifact is allowed. When set, Artifactory will bypass the HEAD request and cache the artifact directly using a GET request
+enableCookieManagement: "false"   #Enables cookie management if the remote repository uses cookies to manage client state
+enableTokenAuthentication: "false" # Enables token authentication - Required for DockerHub and other token based registries
+fetchJarsEagerly: "false"   #Only for Maven repositories. When set, the repository attempts to eagerly fetch the jar in the background each time a POM is requested
+fetchSourcesEagerly: "false"   #When set, the repository attempts to eagerly fetch the source jar in the background each time a jar is requested
+forceNugetAuthentication: "false"   #Force basic authentication credentials in order to use this repository
+handleReleases: "true"   #If set, Artifactory allows you to deploy release artifacts into this repository
+handleSnapshots: "true"   #If set, Artifactory allows you to deploy snapshot artifacts into this repository
+listRemoteFolderItems: "true"   #Lists the items of remote folders in simple and list browsing. Required for dynamic resolution that depends on remote folder content information, such as remote Ivy version lookups. The remote content is cached according to the value of the 'Retrieval Cache Period'
+offline: "false"   #If set, Artifactory does not try to fetch remote artifacts. Only locally-cached artifacts are retrieved
+synchronizeProperties: "false"   #When set, remote artifacts are fetched along with their properties
+
+xray:   #Xray settings for the certain repository
+    enabled: false   #Indicated whether the repository will be indexed and scanned by Xray
+
+bower:   #Only for Bower repositories
+    bowerRegistryUrl: http://someurl.com   #The registry URL from which packages will be resolved
+
+cocoaPods:   #Only for CocoaPods repositories
+    cocoaPodsSpecsRepoUrl: http://someurl.com   #The specs URL. When using a private specs repo, set the URL to be the same as the one configured in the URL field
+    specRepoProvider:   #The specs repo provider settings
+        provider: github #The Git Provider the remote repository works against
+        downloadUrl: http://someurl.com   #The custom download URL. Need to set only if the provider is set to 'custom'
+
+nuget:  #Only for NuGet repositories
+    downloadContextPath: api/v2/package   #The context path prefix through which NuGet downloads are served. For example, the NuGet Gallery download URL is 'https://nuget.org/api/v2/package', so the repository URL should be configured as 'https://nuget.org' and the download context path should be configured as 'api/v2/package'v3FeedUrl:"https://api.nuget.org/v3/index.json"
+feedContextPath: api/v2   #The context path prefix through which the NuGet feeds are served. For example, the NuGet Gallery feed URL is 'https://nuget.org/api/v2', so the repository URL should be configured as 'https://nuget.org' and the feed context path should be configured as 'api/v2'
+composer:   #Only for PHP Composer repositories
+    composerRegistryUrl: http://someurl.com   #The registry URL from which packages will be resolved
+vcs:   #Only for VCS, CocoaPods, Bower and Composer repositories
+    git:
+        provider: github #The Git Provider the remote repository works against
+        downloadUrl: http://someurl.com   #The custom download URL. Need to set only if the provider is set as CUSTOM
+    type: git   #Mandatory only when creating a VCS remote repository
+downloadRedirect:   #Settings for redirecting download requests for direct download from cloud storage
+    enabled: "false"   #When true, Artifactory will respond to download requests to this repository with an HTTP 302 redirection return code along with a signed URL directing the calling client to download the requested artifact directly from cloud storage.
+blockPushingSchema1: "false"
+priorityResolution: "false" #Default, applies to all repository types excluding CocoaPods, Git LFS, NuGet V2, Opkg, Rust, Vagrant and VCS repositories
+disableUrlNormalization: "false" #Default
+localAddress: "local"
+metadataRetrievalTimeoutSecs: 1000
+externalDependencies:  #Only for npm repositories. External dependencies configuration.
+    enabled: "false"   #When set, dependency rewrite for the specified npm repository will be enabled
+    patterns:
+        include: "[**/github.com/**]"
+shareConfiguration: false
+storeArtifactsLocally: true
+hardFail: true
+archiveBrowsingEnabled: true
+curated: false
+sendContext: false
+passThrough: false
+propagateQueryParams: true
+contentSynchronisation:
+    enabled: true
+    source:
+        source: "source1"
+    statistics:
+        s1: "s1"
+    properties:
+        p1: "p1"

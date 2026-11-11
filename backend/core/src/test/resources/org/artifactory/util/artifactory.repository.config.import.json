@@ -1,0 +1,377 @@
+{
+  "localRepoConfigs": [
+    {
+      "type": "local",
+      "key": "local-npm-repo",
+      "packageType": "npm",
+      "baseConfig": {
+        "modelVersion": 0,
+        "description": "",
+        "notes": "",
+        "repoLayoutRef": "npm-default",
+        "includesPattern": "**/*",
+        "excludesPattern": ""
+      },
+      "repoTypeConfig": {
+        "archiveBrowsingEnabled": false,
+        "blackedOut": false,
+        "propertySetRefs": [
+          "artifactory"
+        ],
+        "checksumPolicyType": "client-checksums",
+        "priorityResolution": false,
+        "maxUniqueSnapshots": 0,
+        "handleReleases": true,
+        "handleSnapshots": true,
+        "snapshotVersionBehavior": "unique"
+      },
+      "packageTypeConfig": {},
+      "securityConfig": {
+        "hideUnauthorizedResources": false,
+        "signedUrlTtl": 90
+      },
+      "repoType": "LOCAL"
+    },
+    {
+      "type": "local",
+      "key": "artifactory-build-info",
+      "packageType": "buildinfo",
+      "baseConfig": {
+        "modelVersion": 0,
+        "repoLayoutRef": "simple-default",
+        "includesPattern": "**/*"
+      },
+      "repoTypeConfig": {
+        "archiveBrowsingEnabled": false,
+        "blackedOut": false,
+        "propertySetRefs": [],
+        "checksumPolicyType": "client-checksums",
+        "priorityResolution": false,
+        "maxUniqueSnapshots": 0,
+        "handleReleases": true,
+        "handleSnapshots": true,
+        "snapshotVersionBehavior": "unique"
+      },
+      "packageTypeConfig": {},
+      "securityConfig": {
+        "hideUnauthorizedResources": false,
+        "signedUrlTtl": 90
+      },
+      "repoType": "LOCAL"
+    },
+    {
+      "type": "local",
+      "key": "local-nuget-repo",
+      "packageType": "nuget",
+      "baseConfig": {
+        "modelVersion": 0,
+        "description": "",
+        "notes": "",
+        "repoLayoutRef": "nuget-default",
+        "includesPattern": "**/*",
+        "excludesPattern": ""
+      },
+      "repoTypeConfig": {
+        "archiveBrowsingEnabled": false,
+        "blackedOut": false,
+        "propertySetRefs": [
+          "artifactory"
+        ],
+        "checksumPolicyType": "client-checksums",
+        "priorityResolution": false,
+        "maxUniqueSnapshots": 0,
+        "handleReleases": true,
+        "handleSnapshots": true,
+        "snapshotVersionBehavior": "unique"
+      },
+      "packageTypeConfig": {
+        "forceNugetAuthentication": "false"
+      },
+      "securityConfig": {
+        "hideUnauthorizedResources": false,
+        "signedUrlTtl": 90
+      },
+      "repoType": "LOCAL"
+    },
+    {
+      "type": "local",
+      "key": "example-repo-local",
+      "packageType": "generic",
+      "baseConfig": {
+        "modelVersion": 0,
+        "description": "Example artifactory repository",
+        "includesPattern": "**/*"
+      },
+      "repoTypeConfig": {
+        "archiveBrowsingEnabled": false,
+        "blackedOut": false,
+        "propertySetRefs": [],
+        "checksumPolicyType": "client-checksums",
+        "priorityResolution": false,
+        "maxUniqueSnapshots": 0,
+        "handleReleases": true,
+        "handleSnapshots": true,
+        "snapshotVersionBehavior": "unique"
+      },
+      "packageTypeConfig": {},
+      "securityConfig": {
+        "hideUnauthorizedResources": false,
+        "signedUrlTtl": 90
+      },
+      "repoType": "LOCAL"
+    },
+    {
+      "type": "local",
+      "key": "local-maven-repo",
+      "packageType": "maven",
+      "baseConfig": {
+        "modelVersion": 0,
+        "description": "",
+        "notes": "",
+        "repoLayoutRef": "maven-2-default",
+        "includesPattern": "**/*",
+        "excludesPattern": ""
+      },
+      "repoTypeConfig": {
+        "archiveBrowsingEnabled": false,
+        "blackedOut": false,
+        "propertySetRefs": [
+          "artifactory"
+        ],
+        "checksumPolicyType": "client-checksums",
+        "priorityResolution": false,
+        "maxUniqueSnapshots": 0,
+        "handleReleases": true,
+        "handleSnapshots": true,
+        "snapshotVersionBehavior": "unique"
+      },
+      "packageTypeConfig": {
+        "suppressPomConsistencyChecks": "false"
+      },
+      "securityConfig": {
+        "hideUnauthorizedResources": false,
+        "signedUrlTtl": 90
+      },
+      "repoType": "LOCAL"
+    }
+  ],
+  "federatedRepoConfigs": [],
+  "releaseBundleRepoConfigs": [],
+  "remoteRepoConfigs": [],
+  "virtualRepoConfigs": [
+    {
+      "type": "virtual",
+      "key": "virtual-npm-repo",
+      "packageType": "npm",
+      "baseConfig": {
+        "modelVersion": 0,
+        "description": "",
+        "notes": "",
+        "repoLayoutRef": "npm-default",
+        "includesPattern": "**/*",
+        "excludesPattern": ""
+      },
+      "repoTypeConfig": {
+        "artifactoryRequestsCanRetrieveRemoteArtifacts": false,
+        "virtualCacheConfig": {
+          "virtualRetrievalCachePeriodSecs": 7200
+        },
+        "repositoryRefs": []
+      },
+      "packageTypeConfig": {
+        "externalDependenciesEnabled": "false",
+        "externalDependenciesPatterns": "[\"**\"]"
+      },
+      "securityConfig": {
+        "hideUnauthorizedResources": false,
+        "signedUrlTtl": 90
+      },
+      "repoType": "VIRTUAL"
+    }
+  ],
+  "all": [
+    {
+      "type": "local",
+      "key": "local-npm-repo",
+      "packageType": "npm",
+      "baseConfig": {
+        "modelVersion": 0,
+        "description": "",
+        "notes": "",
+        "repoLayoutRef": "npm-default",
+        "includesPattern": "**/*",
+        "excludesPattern": ""
+      },
+      "repoTypeConfig": {
+        "archiveBrowsingEnabled": false,
+        "blackedOut": false,
+        "propertySetRefs": [
+          "artifactory"
+        ],
+        "checksumPolicyType": "client-checksums",
+        "priorityResolution": false,
+        "maxUniqueSnapshots": 0,
+        "handleReleases": true,
+        "handleSnapshots": true,
+        "snapshotVersionBehavior": "unique"
+      },
+      "packageTypeConfig": {},
+      "securityConfig": {
+        "hideUnauthorizedResources": false,
+        "signedUrlTtl": 90
+      },
+      "repoType": "LOCAL"
+    },
+    {
+      "type": "local",
+      "key": "artifactory-build-info",
+      "packageType": "buildinfo",
+      "baseConfig": {
+        "modelVersion": 0,
+        "repoLayoutRef": "simple-default",
+        "includesPattern": "**/*"
+      },
+      "repoTypeConfig": {
+        "archiveBrowsingEnabled": false,
+        "blackedOut": false,
+        "propertySetRefs": [],
+        "checksumPolicyType": "client-checksums",
+        "priorityResolution": false,
+        "maxUniqueSnapshots": 0,
+        "handleReleases": true,
+        "handleSnapshots": true,
+        "snapshotVersionBehavior": "unique"
+      },
+      "packageTypeConfig": {},
+      "securityConfig": {
+        "hideUnauthorizedResources": false,
+        "signedUrlTtl": 90
+      },
+      "repoType": "LOCAL"
+    },
+    {
+      "type": "local",
+      "key": "local-nuget-repo",
+      "packageType": "nuget",
+      "baseConfig": {
+        "modelVersion": 0,
+        "description": "",
+        "notes": "",
+        "repoLayoutRef": "nuget-default",
+        "includesPattern": "**/*",
+        "excludesPattern": ""
+      },
+      "repoTypeConfig": {
+        "archiveBrowsingEnabled": false,
+        "blackedOut": false,
+        "propertySetRefs": [
+          "artifactory"
+        ],
+        "checksumPolicyType": "client-checksums",
+        "priorityResolution": false,
+        "maxUniqueSnapshots": 0,
+        "handleReleases": true,
+        "handleSnapshots": true,
+        "snapshotVersionBehavior": "unique"
+      },
+      "packageTypeConfig": {
+        "forceNugetAuthentication": "false"
+      },
+      "securityConfig": {
+        "hideUnauthorizedResources": false,
+        "signedUrlTtl": 90
+      },
+      "repoType": "LOCAL"
+    },
+    {
+      "type": "local",
+      "key": "example-repo-local",
+      "packageType": "generic",
+      "baseConfig": {
+        "modelVersion": 0,
+        "description": "Example artifactory repository",
+        "includesPattern": "**/*"
+      },
+      "repoTypeConfig": {
+        "archiveBrowsingEnabled": false,
+        "blackedOut": false,
+        "propertySetRefs": [],
+        "checksumPolicyType": "client-checksums",
+        "priorityResolution": false,
+        "maxUniqueSnapshots": 0,
+        "handleReleases": true,
+        "handleSnapshots": true,
+        "snapshotVersionBehavior": "unique"
+      },
+      "packageTypeConfig": {},
+      "securityConfig": {
+        "hideUnauthorizedResources": false,
+        "signedUrlTtl": 90
+      },
+      "repoType": "LOCAL"
+    },
+    {
+      "type": "local",
+      "key": "local-maven-repo",
+      "packageType": "maven",
+      "baseConfig": {
+        "modelVersion": 0,
+        "description": "",
+        "notes": "",
+        "repoLayoutRef": "maven-2-default",
+        "includesPattern": "**/*",
+        "excludesPattern": ""
+      },
+      "repoTypeConfig": {
+        "archiveBrowsingEnabled": false,
+        "blackedOut": false,
+        "propertySetRefs": [
+          "artifactory"
+        ],
+        "checksumPolicyType": "client-checksums",
+        "priorityResolution": false,
+        "maxUniqueSnapshots": 0,
+        "handleReleases": true,
+        "handleSnapshots": true,
+        "snapshotVersionBehavior": "unique"
+      },
+      "packageTypeConfig": {
+        "suppressPomConsistencyChecks": "false"
+      },
+      "securityConfig": {
+        "hideUnauthorizedResources": false,
+        "signedUrlTtl": 90
+      },
+      "repoType": "LOCAL"
+    },
+    {
+      "type": "virtual",
+      "key": "virtual-npm-repo",
+      "packageType": "npm",
+      "baseConfig": {
+        "modelVersion": 0,
+        "description": "",
+        "notes": "",
+        "repoLayoutRef": "npm-default",
+        "includesPattern": "**/*",
+        "excludesPattern": ""
+      },
+      "repoTypeConfig": {
+        "artifactoryRequestsCanRetrieveRemoteArtifacts": false,
+        "virtualCacheConfig": {
+          "virtualRetrievalCachePeriodSecs": 7200
+        },
+        "repositoryRefs": []
+      },
+      "packageTypeConfig": {
+        "externalDependenciesEnabled": "false",
+        "externalDependenciesPatterns": "[\"**\"]"
+      },
+      "securityConfig": {
+        "hideUnauthorizedResources": false,
+        "signedUrlTtl": 90
+      },
+      "repoType": "VIRTUAL"
+    }
+  ]
+}

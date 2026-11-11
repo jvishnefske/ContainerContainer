@@ -1,0 +1,5 @@
+type: cargo
+url: 'https://index.crates.io'
+cargoAnonymousAccess: true
+cargoInternalIndex: true
+gitRegistryUrl: 'https://notdefault.com'

@@ -1,0 +1,249 @@
+/*
+ *
+ * Artifactory is a binaries repository manager.
+ * Copyright (C) 2018 JFrog Ltd.
+ *
+ * Artifactory is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ * Artifactory is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+package org.artifactory.model.security;
+
+import org.artifactory.sapi.security.SecurityConstants;
+import org.artifactory.security.GroupInfo;
+import org.artifactory.security.MutableGroupInfo;
+
+import jakarta.xml.bind.annotation.XmlAccessType;
+import jakarta.xml.bind.annotation.XmlAccessorType;
+import jakarta.xml.bind.annotation.XmlRootElement;
+
+/**
+ * Holds information about user groups.
+ *
+ * @author Yossi Shaul
+ */
+@XmlRootElement(name = "group")
+@XmlAccessorType(XmlAccessType.FIELD)
+public class GroupImpl implements MutableGroupInfo {
+    private String groupName;
+    private String description;
+
+    /**
+     * indicates if this group should automatically be added to newly created users
+     */
+    private boolean newUserDefault;
+
+    private String realm;
+
+    private String realmAttributes;
+
+    private boolean adminPrivileges;
+    private boolean policyViewer = false;
+    private boolean policyManager = false;
+    private boolean watchManager = false;
+    private boolean reportsManager = false;
+    private String externalId;
+
+    public GroupImpl() {
+        this.realm = SecurityConstants.DEFAULT_REALM;
+    }
+
+    public GroupImpl(String groupName) {
+        this.groupName = groupName;
+        this.realm = SecurityConstants.DEFAULT_REALM;
+    }
+
+    public GroupImpl(String groupName, String description, boolean newUserDefault, boolean adminPrivileges) {
+        this.groupName = groupName;
+        this.description = description;
+        this.newUserDefault = newUserDefault;
+        this.adminPrivileges = adminPrivileges;
+        this.realm = SecurityConstants.DEFAULT_REALM;
+    }
+
+    public GroupImpl(String groupName, String description, String realm) {
+        this.groupName = groupName;
+        this.description = description;
+        this.realm = realm != null ? realm : SecurityConstants.DEFAULT_REALM;
+    }
+
+    public GroupImpl(String groupName, String description,
+            boolean newUserDefault, String realm,
+            String realmAttributes, boolean adminPrivileges) {
+        this.groupName = groupName;
+        this.description = description;
+        this.newUserDefault = newUserDefault;
+        this.realm = realm != null ? realm : SecurityConstants.DEFAULT_REALM;
+        this.realmAttributes = realmAttributes;
+        this.adminPrivileges = adminPrivileges;
+    }
+
+    /**
+     * A copy constructor.
+     *
+     * @param groupInfo Original group info.
+     */
+    public GroupImpl(GroupInfo groupInfo) {
+        this(groupInfo.getGroupName(),
+                groupInfo.getDescription(),
+                groupInfo.isNewUserDefault(),
+                groupInfo.getRealm(),
+                groupInfo.getRealmAttributes(),
+                groupInfo.isAdminPrivileges());
+    }
+
+    @Override
+    public String getGroupName() {
+        return groupName;
+    }
+
+    @Override
+    public void setGroupName(String groupName) {
+        this.groupName = groupName;
+    }
+
+    @Override
+    public String getDescription() {
+        return description;
+    }
+
+    @Override
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    /**
+     * @return True if this group should automatically be added to newly created users.
+     */
+    @Override
+    public boolean isNewUserDefault() {
+        return newUserDefault;
+    }
+
+    @Override
+    public void setNewUserDefault(boolean newUserDefault) {
+        this.newUserDefault = newUserDefault;
+    }
+
+    @Override
+    public boolean isExternal() {
+        return realm != null && !SecurityConstants.DEFAULT_REALM.equals(realm);
+    }
+
+    @Override
+    public String getRealm() {
+        return realm;
+    }
+
+    @Override
+    public void setRealm(String realm) {
+        this.realm = realm != null ? realm : SecurityConstants.DEFAULT_REALM;
+    }
+
+    @Override
+    public String getRealmAttributes() {
+        return realmAttributes;
+    }
+
+    @Override
+    public boolean isAdminPrivileges() {
+        return adminPrivileges;
+    }
+
+    @Override
+    public boolean isPolicyViewer() {
+        return policyViewer;
+    }
+
+    @Override
+    public boolean isPolicyManager() {
+        return policyManager;
+    }
+
+    @Override
+    public boolean isWatchManager() {
+        return watchManager;
+    }
+
+    @Override
+    public boolean isReportsManager() {
+        return reportsManager;
+    }
+
+    @Override
+    public String getExternalId() {
+        return externalId;
+    }
+
+    @Override
+    public void setRealmAttributes(String realmAttributes) {
+        this.realmAttributes = realmAttributes;
+    }
+
+    @Override
+    public void setAdminPrivileges(boolean adminPrivileges) {
+        this.adminPrivileges = adminPrivileges;
+    }
+
+    @Override
+    public void setPolicyViewer(boolean policyViewer) {
+        this.policyViewer = policyViewer;
+    }
+
+    @Override
+    public void setPolicyManager(boolean policyManager) {
+        this.policyManager = policyManager;
+    }
+
+    @Override
+    public void setWatchManager(boolean watchManager) {
+        this.watchManager = watchManager;
+    }
+
+    @Override
+    public void setReportsManager(boolean reportsManager) {
+        this.reportsManager = reportsManager;
+    }
+
+    @Override
+    public void setExternalId(String externalId) {
+        this.externalId = externalId;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+
+        GroupImpl info = (GroupImpl) o;
+
+        return !(groupName != null ? !groupName.equals(info.groupName) : info.groupName != null);
+
+    }
+
+    @Override
+    public int hashCode() {
+        return (groupName != null ? groupName.hashCode() : 0);
+    }
+
+    @Override
+    public String toString() {
+        return (groupName != null ? groupName : "Group name not set");
+    }
+
+}

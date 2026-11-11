@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.jfrog.build</groupId>
+        <artifactId>build-handler-parent</artifactId>
+        <version>7.161.15</version>
+    </parent>
+
+    <name>Build Handler Anti-Corruption Layer</name>
+    <packaging>jar</packaging>
+
+    <artifactId>build-handler-acl</artifactId>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.checkerframework</groupId>
+                <artifactId>checker-qual</artifactId>
+                <version>4.0.0</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- JFrog Commons dependencies: -->
+        <dependency>
+            <groupId>org.jfrog.storage</groupId>
+            <artifactId>jfrog-db-infra</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-base-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.common</groupId>
+            <artifactId>sysconf</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.common</groupId>
+            <artifactId>jfrog-utils</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.access</groupId>
+            <artifactId>access-client-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.access</groupId>
+            <artifactId>access-common-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.buildinfo</groupId>
+            <artifactId>build-info-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.jfrog.bh</groupId>
+            <artifactId>bundle-handler-acl</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.common</groupId>
+            <artifactId>jfrog-http-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.storage</groupId>
+            <artifactId>binary-store-api</artifactId>
+        </dependency>
+
+        <!-- Spring Framework dependencies: -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context-indexer</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-tx</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Third-party dependencies: -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.annotation</groupId>
+            <artifactId>jakarta.annotation-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.xml.bind</groupId>
+            <artifactId>jakarta.xml.bind-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.hibernate.validator</groupId>
+            <artifactId>hibernate-validator</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>joda-time</groupId>
+            <artifactId>joda-time</artifactId>
+            <version>${joda.time.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tomcat</groupId>
+            <artifactId>tomcat-annotations-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tomcat.embed</groupId>
+            <artifactId>tomcat-embed-core</artifactId>
+            <version>${tomcat.version}</version>
+        </dependency>
+
+        <!-- Test dependencies: -->
+        <dependency>
+            <groupId>org.jfrog.event</groupId>
+            <artifactId>event-client</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.core</groupId>
+            <artifactId>jersey-common</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.el</groupId>
+            <artifactId>jakarta.el-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish</groupId>
+            <artifactId>jakarta.el</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.github.javaparser</groupId>
+            <artifactId>javaparser-symbol-solver-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

@@ -1,0 +1,1 @@
+ALTER TABLE build_promotions ADD CONSTRAINT PRIMARY KEY (build_id, created);

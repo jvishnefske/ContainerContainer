@@ -1,0 +1,1 @@
+CREATE INDEX lock_key_idx ON distributed_locks (lock_key varchar_pattern_ops);

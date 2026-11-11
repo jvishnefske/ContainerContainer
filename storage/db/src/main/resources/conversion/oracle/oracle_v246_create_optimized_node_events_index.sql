@@ -1,0 +1,1 @@
+CREATE INDEX node_events_timestamp_event_id_type_idx ON node_events (timestamp, event_id, event_type) ONLINE;

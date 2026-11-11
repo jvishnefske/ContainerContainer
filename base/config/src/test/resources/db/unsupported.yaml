@@ -1,0 +1,4 @@
+## unsupported db properties file
+artifactory:
+  database:
+    type: youShallNotPass

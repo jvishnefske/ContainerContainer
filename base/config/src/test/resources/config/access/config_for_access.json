@@ -1,0 +1,13 @@
+{
+  "security": {
+    "anonymous-access-enabled": true,
+    "user-lock-policy": {
+      "attempts": 1
+    },
+    "authentication": {
+      "password-encryption": "required",
+      "disable-remember-me": true,
+      "basic-authentication-enabled": true
+    }
+  }
+}

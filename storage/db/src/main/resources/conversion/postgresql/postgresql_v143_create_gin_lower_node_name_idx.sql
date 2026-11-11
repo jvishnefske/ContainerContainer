@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY IF NOT EXISTS nodes_lower_node_name_gin_idx ON nodes USING gin(LOWER (node_name) gin_trgm_ops) WHERE node_type = 1;

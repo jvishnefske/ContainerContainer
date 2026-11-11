@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<!--
+  ~ Artifactory is a binaries repository manager.
+  ~ Copyright (C) 2018 JFrog Ltd.
+  ~
+  ~ Artifactory is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU Affero General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Artifactory is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU Affero General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU Affero General Public License
+  ~ along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+  -->
+<html>
+<head>
+    <title>Absolute href test fixture</title>
+</head>
+<body>
+<pre>
+<a href="http://example.com/repo/child1.jar">child1.jar</a>
+<a href="http://example.com/repo/subdir/">subdir/</a>
+<a href="http://example.com/repo/artifact.jar?v=1">artifact.jar</a>
+<a href="http://example.com/repo/readme.txt#section">readme.txt</a>
+<a href="http://example.com/other/outside.jar">outside.jar</a>
+<a href="http://bad host/other/stuff.jar">stuff.jar</a>
+<a href="http://bad host/repo/in-scope.jar">in-scope.jar</a>
+<a href="http://example.com:abc/repo/bad-port.jar">bad-port.jar</a>
+<a href="http://host|name/repo/bad-char.jar">bad-char.jar</a>
+</pre>
+</body>
+</html>

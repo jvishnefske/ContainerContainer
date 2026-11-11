@@ -1,0 +1,3 @@
+shared:
+  logging:
+    enableJsonConsoleLogAppenders: false

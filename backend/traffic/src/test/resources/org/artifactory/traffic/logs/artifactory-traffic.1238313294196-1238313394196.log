@@ -1,0 +1,10 @@
+20150112123017|620a731101f1fe78|17|UPLOAD|127.0.0.1|ext-release-local:boo.txt|4
+20150112123146|620a731101f1fe78|20|REDIRECT|127.0.0.1|ext-release-local:boo.txt|4
+20150112123213|620a731101f1fe78|90|UPLOAD|127.0.0.1|ext-release-local:avalon-framework/avalon-framework/4.1.3/avalon-framework-4.1.3.pom|167
+20150112123220|620a731101f1fe78|13|UPLOAD|127.0.0.1|ext-release-local:boo.txt|4
+20150112123239|620a731101f1fe78|1|DOWNLOAD|127.0.0.1|ext-release-local:boo.txt|4
+20150112123254|620a731101f1fe78|3|DOWNLOAD|127.0.0.1|ext-release-local:ca/juliusdavies/not-yet-commons-ssl/0.3.9/not-yet-commons-ssl-0.3.9.jar|258278
+20150112133129|620a731101f1fe78|75|UPLOAD|127.0.0.1|ext-release-local:boo.txt|0
+20150112153756|620a731101f1fe78|114|UPLOAD|127.0.0.1|ext-release-local:avalon-framework/avalon-framework/4.1.3/avalon-framework-4.1.3.pom|167
+20150112153835|620a731101f1fe78|48|UPLOAD|127.0.0.1|ext-release-local:bsh/bsh/1.3.0/bsh-1.3.0.pom|210
+20150112154102|620a731101f1fe78|1|DOWNLOAD|127.0.0.1|plugins-release-local:bsh/bsh/1.3.0/bsh-1.3.0.pom|210

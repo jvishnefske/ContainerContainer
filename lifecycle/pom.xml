@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>artifactory-parent</artifactId>
+        <groupId>org.artifactory</groupId>
+        <version>7.161.15</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>artifactory-lifecycle</artifactId>
+    <name>Artifactory Lifecycle</name>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-storage-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-storage-db</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-config</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.derby</groupId>
+            <artifactId>derby</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.derby</groupId>
+            <artifactId>derbyshared</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.derby</groupId>
+            <artifactId>derbytools</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-config</artifactId>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.common</groupId>
+            <artifactId>jfrog-utils</artifactId>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

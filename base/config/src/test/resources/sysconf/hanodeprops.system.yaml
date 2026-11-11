@@ -1,0 +1,18 @@
+## equivalend yaml for the ha-node.properties:
+#node.id=art1
+#membership.port=10001
+#primary=true
+#artifactory.ha.data.dir=/mnt/shared/artifactory/ha-data
+#artifactory.ha.backup.dir=/mnt/shared/artifactory/ha-backup
+#hazelcast.interface=15.5.19.78
+shared:
+  node:
+    id: art1id
+    name: art1
+    ip: 15.5.19.78
+    primary: true
+    haEnabled: true
+    membershipPort: 10001
+    haDataDir: /mnt/shared/artifactory/ha-data
+    haDataBackup: /mnt/shared/artifactory/ha-backup
+    crossZoneOrder: 1,2

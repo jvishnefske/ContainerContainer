@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Artifactory is a binaries repository manager.
+  ~ Copyright (C) 2018 JFrog Ltd.
+  ~
+  ~ Artifactory is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU Affero General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Artifactory is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU Affero General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU Affero General Public License
+  ~ along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+  -->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0          http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.artifactory.sh</groupId>
+        <artifactId>storage-handler-bridges-parent</artifactId>
+        <version>7.161.15</version>
+    </parent>
+
+    <artifactId>storage-handler-a2b-bridge</artifactId>
+    <name>Storage Handler A2B Bridge</name>
+
+    <description>
+        Bridge module - main storage-handler interface for artifactory usage
+        Allow artifactory beans to find binary-store beans
+        (from) artifactory spring beans
+        (to) binary-store beans
+        * Implements the artifactory-binary-store service api (real and mock)
+    </description>
+
+    <dependencies>
+        <!--   dependencies for internal artifactory modules     -->
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-common</artifactId>
+        </dependency>
+        <!--   dependencies for storage handler modules          -->
+        <dependency>
+            <groupId>org.jfrog.storage</groupId>
+            <artifactId>binary-store-core</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.jfrog.sh</groupId>
+            <artifactId>storage-client</artifactId>
+            <version>${jfrog.storage.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-config</artifactId>
+            <type>test-jar</type>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!--test-jar of this module is being used by binary-store-filestore and artifactory-itest and addons -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

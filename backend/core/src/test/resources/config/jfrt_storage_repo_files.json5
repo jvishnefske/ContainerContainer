@@ -1,0 +1,30 @@
+{
+    "description": "jfrt storage repo files",
+    "example": 'jfrt_storage_repo_files{name="sbt-local",repo_type="VIRTUAL",package_type="sbt",project="ProjectA"} 142219.0 1721655322145',
+    "config_saas": {
+        "type": "usage",
+        "throttling": 9999999
+    },
+    "config_selfhosted": {
+        "type": "usage",
+        "throttling": 9999999
+    },
+    "recognized_fields": {
+        "name": {
+            "description": "repository name",
+            "example": "sbt-local"
+        },
+        "repo_type": {
+            "description": "repository type",
+            "example": "VIRTUAL"
+        },
+        "package_type": {
+            "description": "repository type",
+            "example": "sbt"
+        },
+        "project": {
+            "description": "name of the project that this repository belongs to",
+            "example": "ProjectA"
+        }
+    }
+}

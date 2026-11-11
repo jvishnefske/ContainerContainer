@@ -1,0 +1,34 @@
+<!--
+  ~ Artifactory is a binaries repository manager.
+  ~ Copyright (C) 2018 JFrog Ltd.
+  ~
+  ~ Artifactory is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU Affero General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Artifactory is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU Affero General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU Affero General Public License
+  ~ along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+  -->
+<Server port="8015" shutdown="SHUTDOWN">
+
+    <Service name="Catalina">
+        <Connector port="8081" sendReasonPhrase="true" relaxedPathChars='[]' relaxedQueryChars='[]' maxThreads="200" encodedSolidusHandling="decode"/>
+
+        <Connector port="8091" address="localhost" maxThreads="5" acceptCount="5" encodedSolidusHandling="decode"/>
+
+        <!-- Must be at least the value of artifactory.access.client.max.connections -->
+        <Connector port="8040" sendReasonPhrase="true" maxThreads="50" encodedSolidusHandling="decode"/>
+
+        <Engine name="Catalina" defaultHost="localhost">
+            <Host name="localhost" workDir="${JF_PRODUCT_HOME}/var/work/artifactory/tomcat" appBase="webapps" startStopThreads="2"/>
+        </Engine>
+    </Service>
+
+</Server>
+

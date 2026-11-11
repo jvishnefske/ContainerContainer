@@ -1,0 +1,7 @@
+type: go
+repoLayout: go-default
+url: 'https://proxy.golang.org'
+vcs:
+    git:
+        provider: ARTIFACTORY
+    type: git

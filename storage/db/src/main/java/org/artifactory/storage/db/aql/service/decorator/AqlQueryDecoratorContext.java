@@ -1,0 +1,61 @@
+/*
+ *
+ * Artifactory is a binaries repository manager.
+ * Copyright (C) 2018 JFrog Ltd.
+ *
+ * Artifactory is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ * Artifactory is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+package org.artifactory.storage.db.aql.service.decorator;
+
+import org.artifactory.aql.model.AqlOverloadSettings;
+import org.artifactory.aql.model.AqlPermissionProvider;
+import org.artifactory.aql.model.AqlRepoProvider;
+
+/**
+ * @author Yinon Avraham
+ */
+public class AqlQueryDecoratorContext {
+
+    private final AqlRepoProvider repoProvider;
+    private final AqlPermissionProvider permissionProvider;
+    private final AqlOverloadSettings aqlOverloadSettings;
+
+    public AqlQueryDecoratorContext(AqlRepoProvider repoProvider, AqlPermissionProvider permissionProvider) {
+        this.repoProvider = repoProvider;
+        this.permissionProvider = permissionProvider;
+        this.aqlOverloadSettings = null;
+    }
+
+    @java.beans.ConstructorProperties({"repoProvider", "permissionProvider", "aqlOverloadSettings"})
+    public AqlQueryDecoratorContext(AqlRepoProvider repoProvider, AqlPermissionProvider permissionProvider,
+            AqlOverloadSettings aqlOverloadSettings) {
+        this.repoProvider = repoProvider;
+        this.permissionProvider = permissionProvider;
+        this.aqlOverloadSettings = aqlOverloadSettings;
+    }
+
+    public AqlRepoProvider getRepoProvider() {
+        return this.repoProvider;
+    }
+
+    public AqlPermissionProvider getPermissionProvider() {
+        return this.permissionProvider;
+    }
+
+    public AqlOverloadSettings getAqlOverloadSettings() {
+        return this.aqlOverloadSettings;
+    }
+}

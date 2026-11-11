@@ -1,0 +1,4 @@
+DROP
+INDEX IF EXISTS node_props_prop_value_key_idx;
+ALTER
+INDEX pattern_node_props_prop_value_key_idx RENAME TO node_props_prop_value_key_idx;

@@ -1,0 +1,88 @@
+openapi: 3.0.3
+info:
+    title: Stats Event Schema
+    version: 1.0.0
+    description: |
+        Schema for jfbus stats events (RTDEV-84772 / META-2762). One event = one
+        minute-aggregated batch of stats deltas/overwrites for a single repo.
+        Producer first splits the per-tick Map<RepoPath, MetadataStats> by
+        repoName, then chunks within each repo at MAX_ENTRIES_PER_EVENT (1000).
+        Each chunk becomes one StatsEvent published with partition key =
+        hash(repoName) so per-repo ordering is preserved on the consumer side.
+
+        Versioned independently from artifactory-index-event-api (Igor Gumush
+        2026-05-05): index events and stats events have different ownership and
+        evolution cadences, so they live in separate Maven modules and emit
+        separate Go modules (jfrog.com/jfrog-artifactory-stats-event vs
+        jfrog.com/jfrog-artifactory-index-event).
+paths: {}
+
+components:
+    schemas:
+
+        # Top-level event envelope. Producer always writes schemaVersion="stats.v1"
+        # for this release. Consumer validates schemaVersion BEFORE any other
+        # unmarshal logic and rejects unknown versions gracefully (metric + log +
+        # commit offset) instead of crash-looping. This is the explicit lesson
+        # from the 2026-04-30 incident on artifactory-package-indexed-events
+        # where 3.53M consumer errors over 3 days were caused by a payload-shape
+        # change that protojson DiscardUnknown could not absorb.
+        StatsEvent:
+            type: object
+            required: [schemaVersion, eventId, entries]
+            properties:
+                schemaVersion:
+                    type: string
+                    description: Wire-level schema version. Producer always writes "stats.v1" for this release.
+                eventId:
+                    type: string
+                    minLength: 1
+                    description: Unique per published event (per producer-instance per minute-tick per repo per chunk). Used for diagnostic correlation in logs and metrics; not persisted on the consumer. No specific format required (ULID, UUID, or producer-local timestamp+nonce all work) — the previous design rationale for sortable/monotonic IDs has been dropped together with the consumer-side dedup table (META-2762 architects review 2026-05-04).
+                emittedAt:
+                    type: string
+                    format: date-time
+                entries:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/StatsEntry'
+                    description: Minute-aggregated batch of stats deltas/overwrites for ONE repo. Bounded by MAX_ENTRIES_PER_EVENT on the producer.
+
+        # Per-entry stats data. Carries either a delta (force=false, additive) or an
+        # absolute overwrite (force=true, used by Artifactory's reindex /
+        # statsRecreateAsync flow) for one (repoName, leadFilePath) tuple.
+        # packageName is on the wire for forward compatibility but the producer leaves
+        # it empty today — the consumer derives package identity from leadFilePath via
+        # the existing PathService.DeletePath/Upsert flow. When/if a future producer
+        # populates packageName, consumers can opt in without a wire-shape break.
+        StatsEntry:
+            type: object
+            required: [repoName, leadFilePath]
+            properties:
+                repoName:
+                    type: string
+                repoPackageType:
+                    type: string
+                packageName:
+                    type: string
+                leadFilePath:
+                    type: string
+                    description: Path of the leading file that represents the package/version. Same semantics as PackageIndexEvent.leadFilePath in the sibling artifactory-index-event-api module.
+                additionalDownloads:
+                    type: integer
+                    format: int64
+                    description: Per-entry download delta (force=false) or absolute count (force=true).
+                additionalFollowers:
+                    type: integer
+                    format: int64
+                    description: Per-entry follower delta (force=false) or absolute count (force=true). Producer may emit 0 today; populator wired through in a follow-up.
+                lastDownloaded:
+                    type: integer
+                    format: int64
+                    description: unix millis
+                remoteLastDownloaded:
+                    type: integer
+                    format: int64
+                    description: unix millis
+                force:
+                    type: boolean
+                    description: Discriminates per-entry mode. force=false means additive delta; force=true means absolute overwrite (consumer overwrites the counter to the values in this entry).

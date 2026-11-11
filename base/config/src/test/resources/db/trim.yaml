@@ -1,0 +1,9 @@
+# values with spaces
+artifactory:
+  database:
+    type: derby
+    url: jdbc:to:removespaces
+    driver:  some.driver
+    maxOpenConnections: 300
+    maxIdleConnections: 1337
+    empty:

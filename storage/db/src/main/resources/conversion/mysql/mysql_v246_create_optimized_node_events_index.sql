@@ -1,0 +1,1 @@
+ALTER TABLE node_events ADD INDEX node_events_timestamp_event_id_type_idx (timestamp, event_id, event_type), ALGORITHM=INPLACE, LOCK=NONE;

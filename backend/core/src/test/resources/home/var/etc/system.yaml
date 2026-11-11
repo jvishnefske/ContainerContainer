@@ -1,0 +1,6 @@
+shared:
+    custom:
+        id: XXX-YYY
+artifactory:
+    custom:
+        name: artifactory-test

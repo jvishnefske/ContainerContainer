@@ -1,0 +1,1 @@
+ALTER TABLE artifact_bundles ADD COLUMN source_service_id VARCHAR(255) DEFAULT NULL;

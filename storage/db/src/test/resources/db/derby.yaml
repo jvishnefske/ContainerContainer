@@ -1,0 +1,7 @@
+## derby properties file for testing and development
+artifactory:
+  database:
+    type: derby
+    url: jdbc:derby:memory:{db.home};create=true
+    driver: org.apache.derby.jdbc.EmbeddedDriver
+    allowNonPostgresql: true

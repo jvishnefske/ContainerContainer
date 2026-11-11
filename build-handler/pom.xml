@@ -1,0 +1,993 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <artifactId>artifactory-parent-pom</artifactId>
+        <groupId>org.artifactory</groupId>
+        <version>7.161.15</version>
+    </parent>
+
+    <name>Build Handler</name>
+    <packaging>pom</packaging>
+
+    <groupId>com.jfrog.build</groupId>
+    <artifactId>build-handler-parent</artifactId>
+
+    <modules>
+        <module>build-handler-acl</module>
+        <module>build-handler-service</module>
+    </modules>
+
+    <properties>
+        <failOnDependencyWarning>true</failOnDependencyWarning>
+
+        <jfrog.access.version>7.189.2</jfrog.access.version>
+
+        <jfrog.binary.store.version>4.372.5</jfrog.binary.store.version>
+
+        <jfrog.xray.java.client.version>3.84.0</jfrog.xray.java.client.version>
+
+        <jfrog.event.version>7.701.0</jfrog.event.version>
+
+        <org.mockito.version>5.23.0</org.mockito.version>
+
+        <org.apache.derby.version>10.17.1.0</org.apache.derby.version>
+
+        <jakarta.el.version>6.0.1</jakarta.el.version>
+
+        <org.glassfish.jakarta.el.version>4.0.2</org.glassfish.jakarta.el.version>
+
+        <jakarta.xml.bind-api.version>4.0.5</jakarta.xml.bind-api.version>
+
+        <build.info.version>2.43.9</build.info.version>
+
+        <hk2.api.version>4.0.1</hk2.api.version>
+
+        <mysql.connector.version>9.7.0</mysql.connector.version>
+
+        <joda.time.version>2.14.2</joda.time.version>
+
+        <spring.version>7.0.8</spring.version>
+
+        <jfrog.bh.version>3.246.0</jfrog.bh.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Build Handler inter-dependencies (PROJECT VERSION): -->
+            <dependency>
+                <groupId>com.jfrog.build</groupId>
+                <artifactId>build-handler-acl</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.jfrog.build</groupId>
+                <artifactId>build-handler-service</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <!-- JFrog Commons - Build-Info dependencies: -->
+            <dependency>
+                <groupId>org.jfrog.buildinfo</groupId>
+                <artifactId>build-info-api</artifactId>
+                <version>${build.info.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.apache.httpcomponents</groupId>
+                        <artifactId>httpcore</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+
+            <!-- Enforce netty version before Spring dependencies can pull in an older one -->
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-bom</artifactId>
+                <version>${netty.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Enforce Jackson version from parent-pom, matching artifactory-core -->
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${fasterxml.jackson.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- JFrog Artifactory - Spring dependencies (aggregated): -->
+            <dependency>
+                <groupId>org.artifactory</groupId>
+                <artifactId>artifactory-spring-dependencies</artifactId>
+                <version>${project.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- JFrog Artifactory - Test dependencies (aggregated): -->
+            <dependency>
+                <groupId>org.artifactory</groupId>
+                <artifactId>artifactory-test-dependencies</artifactId>
+                <version>${project.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- JFrog Commons dependencies: -->
+            <dependency>
+                <groupId>org.artifactory</groupId>
+                <artifactId>artifactory-base-api</artifactId>
+                <version>${artifactory.commons.api.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.artifactory</groupId>
+                <artifactId>artifactory-work-queue-api</artifactId>
+                <version>${artifactory.commons.api.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>javax.validation</groupId>
+                        <artifactId>validation-api</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.jfrog.access</groupId>
+                <artifactId>access-common-api</artifactId>
+                <version>${jfrog.access.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <artifactId>javax.annotation-api</artifactId>
+                        <groupId>javax.annotation</groupId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>jakarta.validation</groupId>
+                        <artifactId>jakarta.validation-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.jfrog.common</groupId>
+                        <artifactId>jfrog-http-client5</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.jfrog.access</groupId>
+                <artifactId>access-client-api</artifactId>
+                <version>${jfrog.access.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <artifactId>javax.annotation-api</artifactId>
+                        <groupId>javax.annotation</groupId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>jakarta.validation</groupId>
+                        <artifactId>jakarta.validation-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <artifactId>protobuf-java</artifactId>
+                        <groupId>com.google.protobuf</groupId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.jfrog.storage</groupId>
+                <artifactId>jfrog-db-infra</artifactId>
+                <version>${jfrog.commons.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.jfrog.common</groupId>
+                        <artifactId>jfrog-multitenant-infra</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>software.amazon.awssdk</groupId>
+                        <artifactId>rds</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.jetbrains</groupId>
+                        <artifactId>annotations</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.tomcat</groupId>
+                        <artifactId>tomcat-annotations-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>javax.annotation</groupId>
+                        <artifactId>javax.annotation-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.tomcat</groupId>
+                        <artifactId>tomcat-jdbc</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.tomcat.embed</groupId>
+                        <artifactId>tomcat-embed-core</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>jcl-over-slf4j</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.flywaydb</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.jfrog.common</groupId>
+                <artifactId>sysconf</artifactId>
+                <version>${jfrog.commons.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jfrog.common</groupId>
+                <artifactId>jfrog-utils</artifactId>
+                <version>${jfrog.commons.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jfrog.security</groupId>
+                <artifactId>${jfrog.crypto.artifactId}</artifactId>
+                <version>${jfrog.commons.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jfrog.common</groupId>
+                <artifactId>jfrog-jfevent</artifactId>
+                <version>${jfrog.commons.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jfrog.common</groupId>
+                <artifactId>metrics</artifactId>
+                <version>${jfrog.commons.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>net.java.dev.jna</groupId>
+                        <artifactId>jna</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.jetbrains.kotlin</groupId>
+                        <artifactId>kotlin-stdlib-jdk8</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>javax.annotation</groupId>
+                        <artifactId>javax.annotation-api</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.jfrog.common</groupId>
+                <artifactId>jfrog-commons-rest</artifactId>
+                <version>${jfrog.commons.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jfrog.event</groupId>
+                <artifactId>event-client</artifactId>
+                <version>${jfrog.event.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>javax.annotation</groupId>
+                        <artifactId>javax.annotation-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.jetbrains</groupId>
+                        <artifactId>annotations</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.jfrog.xray</groupId>
+                <artifactId>xray-java-client-core</artifactId>
+                <version>${jfrog.xray.java.client.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jfrog.xray</groupId>
+                <artifactId>xray-java-client-api</artifactId>
+                <version>${jfrog.xray.java.client.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jfrog.common</groupId>
+                <artifactId>jfrog-http-client</artifactId>
+                <version>${jfrog.commons.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>jcl-over-slf4j</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.jfrog.storage</groupId>
+                <artifactId>binary-store-api</artifactId>
+                <version>${jfrog.binary.store.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.jfrog.common</groupId>
+                        <artifactId>jfrog-multitenant-infra</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.jfrog.access</groupId>
+                        <artifactId>access-client-core</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>com.jfrog.bh</groupId>
+                <artifactId>bundle-handler-acl</artifactId>
+                <version>${jfrog.bh.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.jfrog.access</groupId>
+                        <artifactId>access-common-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.jfrog.access</groupId>
+                        <artifactId>access-client-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.jfrog.xray</groupId>
+                        <artifactId>xray-java-client-api</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+
+            <!-- Third-party dependencies: -->
+            <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>${apache.commons.io.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>commons-codec</groupId>
+                <artifactId>commons-codec</artifactId>
+                <version>${apache.commons.codec.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>${apache.commons.lang3.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-collections4</artifactId>
+                <version>4.5.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents</groupId>
+                <artifactId>httpclient</artifactId>
+                <version>${apache.httpclient.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-text</artifactId>
+                <version>1.15.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents</groupId>
+                <artifactId>httpcore</artifactId>
+                <version>4.4.16</version>
+            </dependency>
+            <dependency>
+                <groupId>jakarta.annotation</groupId>
+                <artifactId>jakarta.annotation-api</artifactId>
+                <version>${jakarta.annotation.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>jakarta.validation</groupId>
+                <artifactId>jakarta.validation-api</artifactId>
+                <version>${jakarta.validation.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>jakarta.inject</groupId>
+                <artifactId>jakarta.inject-api</artifactId>
+                <version>${jakarta.inject.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>jakarta.el</groupId>
+                <artifactId>jakarta.el-api</artifactId>
+                <version>${jakarta.el.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.glassfish</groupId>
+                <artifactId>jakarta.el</artifactId>
+                <version>${org.glassfish.jakarta.el.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>jakarta.xml.bind</groupId>
+                <artifactId>jakarta.xml.bind-api</artifactId>
+                <version>${jakarta.xml.bind-api.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>jakarta.servlet</groupId>
+                <artifactId>jakarta.servlet-api</artifactId>
+                <version>${jakarta.servlet.version}</version>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>jakarta.ws.rs</groupId>
+                <artifactId>jakarta.ws.rs-api</artifactId>
+                <version>${jakarta.ws.rs.api.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.quartz-scheduler</groupId>
+                <artifactId>quartz</artifactId>
+                <version>2.5.2</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>c3p0</groupId>
+                        <artifactId>c3p0</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.zaxxer</groupId>
+                        <artifactId>HikariCP-java7</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>joda-time</groupId>
+                <artifactId>joda-time</artifactId>
+                <version>${joda.time.version}</version>
+            </dependency>
+
+            <!-- Test dependencies: -->
+            <dependency>
+                <groupId>org.apache.derby</groupId>
+                <artifactId>derby</artifactId>
+                <version>${org.apache.derby.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.derby</groupId>
+                <artifactId>derbytools</artifactId>
+                <version>${org.apache.derby.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-core</artifactId>
+                <version>${org.mockito.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava-testlib</artifactId>
+                <version>33.6.0-jre</version>
+                <scope>test</scope>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.checkerframework</groupId>
+                        <artifactId>checker-qual</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>com.github.javaparser</groupId>
+                <artifactId>javaparser-symbol-solver-core</artifactId>
+                <version>3.28.2</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.github.javaparser</groupId>
+                <artifactId>javaparser-core</artifactId>
+                <version>3.28.2</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.glassfish.hk2</groupId>
+                <artifactId>hk2-api</artifactId>
+                <version>${hk2.api.version}</version>
+                <scope>test</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>org.hibernate.validator</groupId>
+                <artifactId>hibernate-validator</artifactId>
+                <version>${hibernate.validator.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.tomcat</groupId>
+                <artifactId>tomcat-annotations-api</artifactId>
+                <version>${tomcat.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-core</artifactId>
+                <version>${tomcat.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <plugins>
+            <!-- Automatically invoke "clean" before "build/install". -->
+            <plugin>
+                <artifactId>maven-clean-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>auto-clean</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Maven-dependencies validation during a build (for all Build-Handler modules). -->
+            <!-- Thanks to this plugin, you sometimes see "Used undeclared dependencies found" -->
+            <!-- and "Unused declared dependencies found" in failed builds. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.10.0</version>
+                <executions>
+                    <execution>
+                        <id>analyze-phase</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>analyze-only</goal>
+                        </goals>
+                        <configuration>
+                            <ignoredUnusedDeclaredDependencies>
+                                <!-- Must-have for all Artifactory modules with Spring components, -->
+                                <!-- in order to generate "target/classes/META-INF/spring.components", -->
+                                <!-- which accelerates Spring component scan during context initialization. -->
+                                <ignoredUnusedDeclaredDependency>
+                                    org.springframework:spring-context-indexer::
+                                </ignoredUnusedDeclaredDependency>
+                                <ignoredUnusedDeclaredDependency>
+                                    javax.annotation:javax.annotation-api::
+                                </ignoredUnusedDeclaredDependency>
+                                <ignoredUnusedDeclaredDependency>
+                                    jakarta.annotation:jakarta.annotation-api::
+                                </ignoredUnusedDeclaredDependency>
+                                <ignoredUnusedDeclaredDependency>
+                                    org.apache.tomcat:tomcat-annotations-api
+                                </ignoredUnusedDeclaredDependency>
+                                <ignoredUnusedDeclaredDependency>
+                                    org.apache.tomcat.embed:tomcat-embed-core
+                                </ignoredUnusedDeclaredDependency>
+                            </ignoredUnusedDeclaredDependencies>
+                            <ignoreNonCompile>true</ignoreNonCompile>
+                            <failOnWarning>${failOnDependencyWarning}</failOnWarning>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Checkstyle validation during a build (for all Build-Handler modules). -->
+            <!-- Thanks to this plugin, you sometimes see "Failed during checkstyle execution" in failed builds. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <configuration>
+                    <configLocation>checkstyle.xml</configLocation>
+                    <logViolationsToConsole>true</logViolationsToConsole>
+                    <logViolationCountToConsole>true</logViolationCountToConsole>
+                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                    <sourceDirectories>
+                        <sourceDirectory>${project.build.sourceDirectory}</sourceDirectory>
+                        <sourceDirectory>${project.build.testSourceDirectory}</sourceDirectory>
+                        <sourceDirectory>${project.basedir}/src/itest/java</sourceDirectory>
+                    </sourceDirectories>
+                    <failsOnError>true</failsOnError>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>validate</id>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <phase>validate</phase>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Add src/itest/java as a test source directory -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>add-integration-test-source</id>
+                        <phase>generate-test-sources</phase>
+                        <goals>
+                            <goal>add-test-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${project.basedir}/src/test-db/java</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>add-integration-test-resources</id>
+                        <phase>generate-test-resources</phase>
+                        <goals>
+                            <goal>add-test-resource</goal>
+                        </goals>
+                        <configuration>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/src/test-db/resources</directory>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Unit Tests with Surefire -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*Test.class</include>
+                    </includes>
+                    <excludes>
+                        <exclude>**/*itest.class</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <!-- Integration Tests with Failsafe -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                        <configuration>
+                            <!-- Include component tests from src/test-db/java -->
+                            <includes>
+                                <include>**/*ComponentTest.java</include>
+                            </includes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>itest</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <skipTests>true</skipTests> <!-- Skip unit tests -->
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!-- Applies when the Maven `install` is invoked with `-PfullBuild`: -->
+        <!-- With this profile, a Maven build is additionally supplied with all inputs,  -->
+        <!-- which are required for a SonarQube scan. -->
+        <profile>
+            <id>fullBuild</id>
+            <build>
+                <plugins>
+                    <!-- JaCoCo (Code coverage reports) generation for each child module. -->
+                    <!-- Thanks to this plugin, you get the coverage reports at target/index.html. -->
+                    <plugin>
+                        <groupId>org.jacoco</groupId>
+                        <artifactId>jacoco-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>prepare-agent</goal>
+                                </goals>
+                            </execution>
+                            <execution>
+                                <id>report</id>
+                                <phase>prepare-package</phase>
+                                <goals>
+                                    <goal>report</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!-- Applies when the Maven `install` is invoked with `-Ptest-with-oracle`: -->
+        <!-- With this profile, the unit/module tests are performed with Oracle DB in a Docker container. -->
+        <!-- Note, that the Docker container for Oracle DB is a heavy one. -->
+        <profile>
+            <id>test-with-oracle</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <skipTests>true</skipTests> <!-- Skip unit tests -->
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <systemProperties>
+                                <property>
+                                    <name>db.type</name>
+                                    <value>oracle</value>
+                                </property>
+                            </systemProperties>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!-- Applies when the Maven `install` is invoked with `-Ptest-with-mysql`: -->
+        <!-- With this profile, the unit/module tests are performed with MySQL DB in a Docker container. -->
+        <profile>
+            <id>test-with-mysql</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <skipTests>true</skipTests> <!-- Skip unit tests -->
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <systemProperties>
+                                <property>
+                                    <name>db.type</name>
+                                    <value>mysql</value>
+                                </property>
+                            </systemProperties>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!-- Applies when the Maven `install` is invoked with `-Ptest-with-postgresql`: -->
+        <!-- With this profile, the unit/module tests are performed with PostgreSQL DB in a Docker container. -->
+        <profile>
+            <id>test-with-postgresql</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <skipTests>true</skipTests> <!-- Skip unit tests -->
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <systemProperties>
+                                <property>
+                                    <name>db.type</name>
+                                    <value>postgresql</value>
+                                </property>
+                            </systemProperties>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!-- Applies when the Maven `install` is invoked with `-Ptest-with-mariadb`: -->
+        <!-- With this profile, the unit/module tests are performed with MariDB in a Docker container. -->
+        <!-- Note, that MariaDB sources SQL for DB migration from MySQL directories. -->
+        <profile>
+            <id>test-with-mariadb</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <skipTests>true</skipTests> <!-- Skip unit tests -->
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <systemProperties>
+                                <property>
+                                    <name>db.type</name>
+                                    <value>mariadb</value>
+                                </property>
+                            </systemProperties>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!-- Applies when the Maven `install` is invoked with `-Ptest-with-mssql`: -->
+        <!-- With this profile, the unit/module tests are performed with MSSQL DB in a Docker container. -->
+        <profile>
+            <id>test-with-mssql</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <skipTests>true</skipTests> <!-- Skip unit tests -->
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <systemProperties>
+                                <property>
+                                    <name>db.type</name>
+                                    <value>mssql</value>
+                                </property>
+                            </systemProperties>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!--
+        Applies when the Maven `install` is invoked with `-Pdev-use-fips-deps`:
+
+        This profile was not intended for builds or production.  It just allows developers to quickly
+        identify places in the code that use FIPS-incompatible dependencies. Technically, it
+        replaces the standard BouncyCastle dependencies with their FIPS counterpart. If some code
+        fails to compile with this profile, then we need to rewrite it with java.security (or use other
+        security abstraction layer)
+
+        Searching for remained BouncyCastle dependencies:
+
+        mvnw clean install -DskipTests -Pdev-use-fips-deps -Dbuild.failOnNonFipsDependency=true
+        -->
+        <profile>
+            <id>dev-use-fips-deps</id>
+            <dependencyManagement>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.bouncycastle</groupId>
+                        <artifactId>bcprov-jdk18on</artifactId>
+                        <version>${bouncycastle.version}</version>
+                        <scope>provided</scope>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.jfrog.security</groupId>
+                        <artifactId>jfrog-crypto</artifactId>
+                        <version>${jfrog.commons.version}</version>
+                        <exclusions>
+                            <exclusion>
+                                <groupId>org.bouncycastle</groupId>
+                                <artifactId>bcprov-jdk18on</artifactId>
+                            </exclusion>
+                            <exclusion>
+                                <groupId>org.bouncycastle</groupId>
+                                <artifactId>bcpg-jdk18on</artifactId>
+                            </exclusion>
+                            <exclusion>
+                                <groupId>org.bouncycastle</groupId>
+                                <artifactId>bcpkix-jdk18on</artifactId>
+                            </exclusion>
+                        </exclusions>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.jfrog.access</groupId>
+                        <artifactId>access-common-api</artifactId>
+                        <version>${jfrog.access.version}</version>
+                        <exclusions>
+                            <exclusion>
+                                <groupId>org.jfrog.security</groupId>
+                                <artifactId>jfrog-crypto</artifactId>
+                            </exclusion>
+                            <exclusion>
+                                <groupId>org.bouncycastle</groupId>
+                                <artifactId>bcprov-jdk18on</artifactId>
+                            </exclusion>
+                            <exclusion>
+                                <groupId>org.bouncycastle</groupId>
+                                <artifactId>bcpg-jdk18on</artifactId>
+                            </exclusion>
+                            <exclusion>
+                                <groupId>org.bouncycastle</groupId>
+                                <artifactId>bcpkix-jdk18on</artifactId>
+                            </exclusion>
+                        </exclusions>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.jfrog.common</groupId>
+                        <artifactId>sysconf</artifactId>
+                        <version>${jfrog.commons.version}</version>
+                        <exclusions>
+                            <exclusion>
+                                <groupId>org.jfrog.security</groupId>
+                                <artifactId>jfrog-crypto</artifactId>
+                            </exclusion>
+                        </exclusions>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.jfrog.common</groupId>
+                        <artifactId>metrics</artifactId>
+                        <version>${jfrog.commons.version}</version>
+                        <exclusions>
+                            <exclusion>
+                                <groupId>org.jfrog.security</groupId>
+                                <artifactId>jfrog-crypto</artifactId>
+                            </exclusion>
+                            <exclusion>
+                                <groupId>javax.annotation</groupId>
+                                <artifactId>javax.annotation-api</artifactId>
+                            </exclusion>
+                        </exclusions>
+                    </dependency>
+                </dependencies>
+            </dependencyManagement>
+        </profile>
+    </profiles>
+</project>

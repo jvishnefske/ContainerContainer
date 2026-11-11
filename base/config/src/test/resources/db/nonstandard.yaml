@@ -1,0 +1,8 @@
+## unsupported db properties file
+shared:
+  database:
+    nonStandardShared: from shared
+
+artifactory:
+  database:
+    nonStandardArti: from arti

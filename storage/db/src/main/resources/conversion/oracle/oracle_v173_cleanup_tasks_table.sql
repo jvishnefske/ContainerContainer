@@ -1,0 +1,1 @@
+DELETE FROM tasks where task_type = 'INDEX' AND ROWNUM <= 1001;

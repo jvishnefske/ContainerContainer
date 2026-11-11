@@ -1,0 +1,36 @@
+type: maven  #The package type
+checksumPolicyType: server-generated-checksums  #Determines how Artifactory behaves when a client checksum for a deployed resource is missing or conflicts with the locally calculated checksum
+description: "Hello world"   #A free text field that describes the content and purpose of the repository
+dockerApiVersion: V1   #Only for Docker repositories. The Docker API version
+excludesPattern: "" #Provides a way to filter out specific repositories when trying to resolve the location of different artifacts (Ant-like pattern)
+includesPattern: "**/*" #Provides a way to filter out specific repositories when trying to resolve the location of different artifacts (Ant-like pattern)
+maxUniqueSnapshots: "0"   #Only for Maven and NuGet repositories. Specifies the maximum number of unique snapshots of the same artifact that should be stored. Once this number is reached and a new snapshot is uploaded, the oldest stored snapshot is removed automatically. Default: 0
+maxUniqueTags: "0"   #Only for Docker repositories. Specifies the maximum number of unique snapshots of the same artifact that should be stored. Once this number is reached and a new snapshot is uploaded, the oldest stored snapshot is removed automatically. Default: 0
+notes: "Hello world 2"   #A free text field to add additional notes about the repository
+repoLayout: maven-2-default   #Sets the layout that the repository should use for storing and identifying modules. The layout usually varies for the different package types
+snapshotVersionBehavior: unique #Specifies the naming convention for Maven SNAPSHOT versions. From release 7.41, the default changed from "non-unique" to "unique" and affects both local and federated repositories .
+xray: #Xray settings for the certain repository
+    enabled: false   #Indicated whether the repository will be indexed and scanned by Xray
+    xrayNotAvailableMode: fail_open
+yumGroupFileNames: yumGroup1   #A comma-separated list of YUM group files associated with your RPM packages
+archiveBrowsingEnabled: "true"
+cdnRedirectRepoConfig:
+    enabled: true
+propertySets:
+    p1: "hello"
+priorityResolution: "false"
+yumRootDepth: "0"   #Informs Artifactory under which level of directory to search for RPMs and save the repodata directory
+blackedOut: "false"   #If set, Artifactory ignores this repository when trying to resolve artifacts. The repository is also not available for download or deployment of artifacts
+calculateYumMetadata: "false"   #When set, RPM metadata calculation is automatically triggered by the actions described above
+debianTrivialLayout: "false"  #Indicates whether the Debian repository uses a trivial layout
+enableFileListsIndexing: "false"   #When set, Artifactory will index and maintain an RPM filelists.xml metadata file
+forceNugetAuthentication: "false"  #When set, if anoynmous access is enabled on the Artifactory instance, this will override the behavior and will force client to authentiacate
+handleReleases: "true"   #If set, Artifactory allows you to deploy release artifacts into this repository
+handleSnapshots: "true"   #If set, Artifactory allows you to deploy snapshot artifacts into this repository
+suppressPomConsistencyChecks: "true"   #When deploying an artifact to a repository, Artifactory verifies that the value set for groupId:artifactId:version in the POM is consistent with the deployed path. If there is a conflict between these then Artifcatory will reject the deployment.
+downloadRedirect: #Settings for redirecting download requests for direct download from cloud storage
+    enabled: "false"   #When true, Artifactory will respond to download requests to this repository with an HTTP 302 redirection return code along with a signed URL directing the calling client to download the requested artifact directly from cloud storage.
+cdnRedirect: "false" # Redirects to the CDN; applies to Cloud only)
+blockPushingSchema1: "false"
+primaryKeyPairDescriptor: "mygpgkey"
+secondaryKeyPairRef: "mysecgpgkey"

@@ -1,0 +1,8 @@
+artifactory:
+    security:
+        import:
+            allowedPaths: /tmp/yaml-import/,/mnt/yaml-backups/
+        export:
+            allowedPaths: /tmp/yaml-export/,/mnt/yaml-backups/
+        backup:
+            allowedPaths: /tmp/yaml-backup/,/mnt/yaml-backups/

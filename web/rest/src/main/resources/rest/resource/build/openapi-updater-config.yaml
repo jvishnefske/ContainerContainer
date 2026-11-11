@@ -1,0 +1,11 @@
+monitored_files: []
+
+monitored_directories:
+  - 'artifactory-oss/web/rest/src/main/java/org/artifactory/rest/resource'
+  - 'artifactory-oss/backend/core/src/main/java/org/artifactory/build'
+
+excluded_directories:
+  - 'artifactory-oss/backend/core/src/main/java/org/artifactory/rest/resource/build/internal'
+
+openapi_file: 'artifactory-oss/web/rest/src/main/resources/rest/resource/build/openapi.yaml'
+agents_guide: 'artifactory-oss/web/rest/src/main/resources/rest/resource/build/agents.md'

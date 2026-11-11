@@ -1,0 +1,12 @@
+CREATE SEQUENCE storage_events_event_id_seq
+    START WITH 1;
+
+CREATE TABLE storage_events (
+    event_id   BIGINT      NOT NULL DEFAULT NEXT VALUE FOR storage_events_event_id_seq,
+    timestamp  BIGINT      NOT NULL,
+    event_type SMALLINT    NOT NULL,
+    sha1       CHAR(40)    NOT NULL,
+    sha256     CHAR(64)    NOT NULL,
+    bin_length BIGINT      NOT NULL,
+    CONSTRAINT storage_events_pk PRIMARY KEY (event_id)
+);

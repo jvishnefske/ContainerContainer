@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.artifactory</groupId>
+    <artifactId>artifactory-event-api-parent</artifactId>
+    <packaging>pom</packaging>
+    <!-- Released to libs-releases-local via the dedicated event-api-parent.yml
+         workflow + artifactory_event_api_parent service entry. Children
+         resolve this POM at build time via <relativePath> in dev mode and
+         from libs-releases-local in master/release mode. The version here
+         must equal the children's <parent>/<version> references — when
+         bumping, edit all three poms in lockstep within a single PR.
+         The first deploy went to 1.1.0 because a seed tag v1.0.0 was pushed
+         out-of-band to satisfy next-gen-ci-pre-build's auto-bump from a
+         non-zero baseline. -->
+    <version>1.9.0</version>
+    <name>Artifactory Event API Parent (shared base)</name>
+    <description>
+        Shared parent POM for the family of "event-api" modules under
+        artifactory-oss/ (artifactory-index-event-api, artifactory-stats-event-api,
+        and any future event domains). Holds the plugin pluginManagement
+        configurations for the OpenAPI-to-proto + proto-to-Java pipeline so each
+        domain pom can be ~20 lines (just the per-domain properties: java.package.name,
+        go.package.name, openapi.inputSpec, proto.module.artifactId). Each domain
+        also has its own go/ subdirectory + go.mod since the Go module identity is
+        per-domain.
+    </description>
+
+    <properties>
+        <openapi.generator.version>7.22.0</openapi.generator.version>
+        <protobuf.version>3.25.9</protobuf.version>
+        <maven.compiler.release>25</maven.compiler.release>
+        <surefire.itests.version>3.5.6</surefire.itests.version>
+        <junit.jupiter.version>6.1.1</junit.jupiter.version>
+        <maven.plugin.dependency.version>3.10.0</maven.plugin.dependency.version>
+        <maven.plugin.compiler.version>3.15.0</maven.plugin.compiler.version>
+        <protobuf-maven-plugin.version>5.1.7</protobuf-maven-plugin.version>
+        <build-helper-maven-plugin.version>3.6.1</build-helper-maven-plugin.version>
+        <maven-replacer-plugin.version>1.5.3</maven-replacer-plugin.version>
+        <maven-assembly-plugin.version>3.8.0</maven-assembly-plugin.version>
+    </properties>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <!-- ============== schema/ submodule pipeline ============== -->
+
+                <!-- 1) Generate .proto from OpenAPI YAML. Domain-pom child sets
+                     ${openapi.inputSpec} pointing to its own YAML resource. -->
+                <plugin>
+                    <groupId>org.openapitools</groupId>
+                    <artifactId>openapi-generator-maven-plugin</artifactId>
+                    <version>${openapi.generator.version}</version>
+                    <executions>
+                        <execution>
+                            <id>generate-proto-from-openapi</id>
+                            <phase>generate-resources</phase>
+                            <goals><goal>generate</goal></goals>
+                            <configuration>
+                                <generatorName>protobuf-schema</generatorName>
+                                <inputSpec>${openapi.inputSpec}</inputSpec>
+                                <output>${project.build.directory}/generated-proto</output>
+                                <configOptions>
+                                    <addJsonNameAnnotation>true</addJsonNameAnnotation>
+                                    <useSimplifiedEnumNames>true</useSimplifiedEnumNames>
+                                    <wrapComplexType>true</wrapComplexType>
+                                </configOptions>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+
+                <!-- 2) Post-process .proto files to inject the per-domain
+                     option java_package and option go_package via the domain pom's
+                     ${java.package.name} and ${go.package.name} properties. -->
+                <plugin>
+                    <groupId>com.google.code.maven-replacer-plugin</groupId>
+                    <artifactId>replacer</artifactId>
+                    <version>${maven-replacer-plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <id>add-java-package-option</id>
+                            <phase>generate-resources</phase>
+                            <goals><goal>replace</goal></goals>
+                            <configuration>
+                                <basedir>${project.build.directory}/generated-proto</basedir>
+                                <includes>
+                                    <include>**/*.proto</include>
+                                </includes>
+                                <replacements>
+                                    <replacement>
+                                        <token>syntax = "proto3";\n\npackage openapitools;</token>
+                                        <value>syntax = "proto3";
+
+package openapitools;
+
+option java_package = "${java.package.name}";
+option go_package = "${go.package.name}";</value>
+                                    </replacement>
+                                </replacements>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+
+                <!-- 3) Add generated .proto to the artifact resources. -->
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>build-helper-maven-plugin</artifactId>
+                    <version>${build-helper-maven-plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <id>attach-proto-resources</id>
+                            <phase>generate-resources</phase>
+                            <goals><goal>add-resource</goal></goals>
+                            <configuration>
+                                <resources>
+                                    <resource>
+                                        <directory>${project.build.directory}/generated-proto</directory>
+                                        <includes><include>**/*.proto</include></includes>
+                                    </resource>
+                                </resources>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+
+                <!-- 4) Bundle generated proto + classes into a separate ZIP
+                     artifact. The domain schema/pom.xml provides the
+                     src/assembly/zip.xml descriptor. -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-assembly-plugin</artifactId>
+                    <version>${maven-assembly-plugin.version}</version>
+                    <configuration>
+                        <descriptors>
+                            <descriptor>src/assembly/zip.xml</descriptor>
+                        </descriptors>
+                        <finalName>${project.artifactId}-${project.version}-resources</finalName>
+                        <appendAssemblyId>false</appendAssemblyId>
+                        <attach>true</attach>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>make-zip</id>
+                            <phase>package</phase>
+                            <goals><goal>single</goal></goals>
+                        </execution>
+                    </executions>
+                </plugin>
+
+                <!-- ============== classes/ submodule pipeline ============== -->
+
+                <!-- Java compiler config (Java 25) -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>${maven.plugin.compiler.version}</version>
+                    <configuration>
+                        <release>${maven.compiler.release}</release>
+                    </configuration>
+                </plugin>
+
+                <!-- Unpack .proto from the schema-module JAR into target/proto-from-dep. -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>${maven.plugin.dependency.version}</version>
+                    <executions>
+                        <execution>
+                            <id>unpack-protos</id>
+                            <phase>generate-sources</phase>
+                            <goals><goal>unpack</goal></goals>
+                            <configuration>
+                                <artifactItems>
+                                    <artifactItem>
+                                        <groupId>org.artifactory</groupId>
+                                        <artifactId>${proto.module.artifactId}</artifactId>
+                                        <version>${project.version}</version>
+                                        <type>jar</type>
+                                        <includes>**/*.proto</includes>
+                                        <outputDirectory>${project.build.directory}/proto-from-dep</outputDirectory>
+                                    </artifactItem>
+                                </artifactItems>
+                                <overWriteReleases>true</overWriteReleases>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+
+                <!-- Compile .proto -> Java. -->
+                <plugin>
+                    <groupId>io.github.ascopes</groupId>
+                    <artifactId>protobuf-maven-plugin</artifactId>
+                    <version>${protobuf-maven-plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <id>generate-java-from-proto</id>
+                            <goals><goal>generate</goal></goals>
+                            <phase>generate-sources</phase>
+                            <configuration>
+                                <protoc>${protobuf.version}</protoc>
+                                <sourceDirectories>
+                                    <sourceDirectory>${project.build.directory}/proto-from-dep</sourceDirectory>
+                                </sourceDirectories>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+
+                <!-- Test runner. -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>${surefire.itests.version}</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+</project>

@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Artifactory is a binaries repository manager.
+  ~ Copyright (C) 2019 JFrog Ltd.
+  ~
+  ~ Artifactory is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU Affero General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Artifactory is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU Affero General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU Affero General Public License
+  ~ along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+  -->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0          http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.artifactory</groupId>
+        <artifactId>artifactory-service-core-parent</artifactId>
+        <version>7.161.15</version>
+        <relativePath>../artifactory-core/</relativePath>
+    </parent>
+
+    <groupId>org.artifactory</groupId>
+    <artifactId>artifactory-parent</artifactId>
+    <packaging>pom</packaging>
+    <version>7.161.15</version>
+    <name>Artifactory Parent</name>
+
+    <licenses>
+        <license>
+            <name>GNU Affero General Public License, Version 3</name>
+            <url>http://www.gnu.org/licenses/agpl-3.0-standalone.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+
+    <modules>
+        <module>base</module>
+        <module>bridge</module>
+        <module>storage</module>
+        <module>support</module>
+        <module>backend</module>
+        <module>web</module>
+        <module>bins</module>
+        <module>coverage</module>
+        <module>lifecycle</module>
+        <module>devenv</module>
+
+        <!-- Temporary (to be moved out of Artifactory Service) -->
+        <module>build-handler</module>
+    </modules>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-maven</artifactId>
+                <version>${mutation.pitest.version}</version>
+                <configuration>
+                    <outputFormats>
+                        <param>HTML</param>
+                        <param>XML</param>
+                    </outputFormats>
+                    <excludedClasses>
+                        <param> org.artifactory.storage.db.*</param>  <!-- long running tests by pit mutation. more than 2 hours -->
+                    </excludedClasses>
+                    <excludedTestClasses>
+                        <param>org.artifactory.engine.UploadServiceApplicationIdTest</param>
+                        <param>org.artifactory.logging.sumo.SumoAppenderTest</param> <!-- https://jfrog-int.atlassian.net/browse/RTDEV-54492 -->
+                        <param>org.artifactory.schedule.TaskServiceImplTest</param>
+                        <param>org.artifactory.descriptor.repo.FederatedRepoDescriptorTest</param>
+                        <param>org.artifactory.descriptor.repo.HttpRepoDescriptorTest</param>
+                        <param>org.artifactory.descriptor.repo.LocalRepoDescriptorTest</param>
+                        <param>org.artifactory.descriptor.repo.VirtualRepoDescriptorTest</param>
+                        <param>org.artifactory.storage.db.repo.service.mapper.RepositoryConfigMapperTest</param>
+                        <param>org.artifactory.util.XmlUtilsTest</param> <!-- https://jfrog-int.atlassian.net/browse/RTAUT-7770 (stricter XML/DTD defaults under JDK 25; sub-ticket TBD) -->
+                        <param>org.artifactory.workqueue.NonBlockingOnWriteQueueTest</param> <!-- https://jfrog-int.atlassian.net/browse/RTAUT-7770 (PIT mutates promote() -> IllegalStateException race; sub-ticket TBD) -->
+                        <param>org.artifactory.workqueue.WorkQueueImplTest</param> <!-- https://jfrog-int.atlassian.net/browse/RTAUT-7770 (PIT parallel mutation triggers consumer-thread leak; sub-ticket TBD) -->
+                    </excludedTestClasses>
+                </configuration>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-junit5-plugin</artifactId>
+                        <version>${mutation.pitest.junit5.version}</version>
+                        <scope>runtime</scope>
+                    </dependency>
+                </dependencies>
+            </plugin>
+        </plugins>
+    </build>
+</project>

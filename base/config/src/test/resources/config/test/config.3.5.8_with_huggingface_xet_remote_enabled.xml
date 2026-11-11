@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://artifactory.jfrog.org/xsd/3.5.8"
+        xsi:schemaLocation="http://artifactory.jfrog.org/xsd/3.5.8
+        https://releases.jfrog.io/artifactory/static-release-virtual/xsd/artifactory/artifactory-v3_5_8.xsd">
+    <repositoriesGeneralConfig>
+        <huggingfaceml>
+            <xetRemoteEnabled>true</xetRemoteEnabled>
+            <xetRemoteEnabledExplicit>true</xetRemoteEnabledExplicit>
+        </huggingfaceml>
+    </repositoriesGeneralConfig>
+    <repoLayouts/>
+</config>

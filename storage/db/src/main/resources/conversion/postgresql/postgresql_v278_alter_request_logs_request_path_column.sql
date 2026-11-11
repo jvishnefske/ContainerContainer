@@ -1,0 +1,1 @@
+ALTER TABLE request_logs ALTER COLUMN request_path SET STATISTICS 1000;

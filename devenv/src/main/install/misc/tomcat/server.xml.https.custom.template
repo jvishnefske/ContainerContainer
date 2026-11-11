@@ -1,0 +1,49 @@
+<!--
+  ~ Artifactory is a binaries repository manager.
+  ~ Copyright (C) 2019 JFrog Ltd.
+  ~
+  ~ Artifactory is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU Affero General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Artifactory is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU Affero General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU Affero General Public License
+  ~ along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+  -->
+<Server port="8015" shutdown="SHUTDOWN">
+    <Service name="Catalina">
+        <Connector port="${artifactory.port||8081}" sendReasonPhrase="${artifactory.tomcat.connector.sendReasonPhrase||false}" relaxedPathChars='[]' relaxedQueryChars='[]' maxThreads="${artifactory.tomcat.connector.maxThreads||200}" address="localhost" ${artifactory.tomcat.connector.extraConfig||_EMPTY_} encodedSolidusHandling="decode"/>
+        
+        <Connector port="${artifactory.tomcat.maintenanceConnector.port||8091}" address="localhost" maxThreads="${artifactory.tomcat.maintenanceConnector.maxThreads||5}" acceptCount="${artifactory.tomcat.maintenanceConnector.acceptCount||5}" ${artifactory.tomcat.maintenanceConnector.extraConfig||_EMPTY_} encodedSolidusHandling="decode"/>
+
+        <Connector port="${artifactory.tomcat.httpsConnector.port||8443}" protocol="org.apache.coyote.http11.Http11NioProtocol" 
+        relaxedPathChars='${artifactory.tomcat.connector.relaxedPathChars||_SQUARE_BRACKETS_}' 
+        relaxedQueryChars='${artifactory.tomcat.connector.relaxedQueryChars||_SQUARE_BRACKETS_}' 
+        maxThreads="${artifactory.tomcat.connector.maxThreads||200}" SSLEnabled="true" scheme="https" secure="true" 
+        ${artifactory.tomcat.httpsConnector.extraConfig||_EMPTY_} encodedSolidusHandling="decode">
+            <SSLHostConfig>
+                <Certificate certificateFile="${artifactory.tomcat.httpsConnector.certificateFile||${JF_PRODUCT_HOME}/var/data/router/keys/custom-server.crt}" 
+                certificateKeyFile="${artifactory.tomcat.httpsConnector.certificateKeyFile||${JF_PRODUCT_HOME}/var/data/router/keys/custom-server.key}" 
+                ${artifactory.tomcat.httpsConnector.sslHostConfig.extraConfig||_EMPTY_} />
+            </SSLHostConfig>
+        </Connector>
+
+        <!-- Must be at least the value of artifactory.access.client.max.connections -->
+        <Connector port="${access.http.port||8040}" sendReasonPhrase="${access.tomcat.connector.sendReasonPhrase||false}" maxThreads="${access.tomcat.connector.maxThreads||50}" address="localhost" ${access.tomcat.connector.extraConfig||_EMPTY_} encodedSolidusHandling="decode"/>
+
+        ${shared.tomcat.connector.extra||_EMPTY_}
+
+        <Engine name="Catalina" defaultHost="localhost">
+            <Host name="localhost" workDir="${shared.tomcat.workDir||${JF_PRODUCT_HOME}/var/work/artifactory/tomcat}" appBase="webapps" startStopThreads="3">
+                <Valve className="org.apache.catalina.valves.ErrorReportValve" showReport="false" showServerInfo="false"/>
+            </Host>
+        </Engine>
+    </Service>
+
+</Server>
+

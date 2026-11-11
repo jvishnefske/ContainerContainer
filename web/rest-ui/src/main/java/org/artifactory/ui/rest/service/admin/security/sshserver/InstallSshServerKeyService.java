@@ -1,0 +1,108 @@
+/*
+ *
+ * Artifactory is a binaries repository manager.
+ * Copyright (C) 2018 JFrog Ltd.
+ *
+ * Artifactory is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ * Artifactory is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+package org.artifactory.ui.rest.service.admin.security.sshserver;
+
+import com.google.common.base.Joiner;
+import org.apache.commons.io.FileUtils;
+import org.artifactory.api.config.CentralConfigService;
+import org.artifactory.api.context.ContextHelper;
+import org.artifactory.api.security.SshAuthService;
+import org.artifactory.file.ArtifactoryValidatedFile;
+import org.artifactory.rest.common.service.ArtifactoryRestRequest;
+import org.artifactory.rest.common.service.RestResponse;
+import org.artifactory.rest.common.service.RestService;
+import org.artifactory.ui.rest.model.admin.security.signingkey.SignKey;
+import org.artifactory.ui.rest.model.utils.FileUpload;
+import org.artifactory.ui.utils.MultiPartUtils;
+import org.artifactory.util.Files;
+import org.artifactory.util.HttpUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import jakarta.servlet.http.HttpServletRequest;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * @author Noam Y. Tenne
+ */
+@Component
+public class InstallSshServerKeyService implements RestService {
+    private static final Logger log = LoggerFactory.getLogger(InstallSshServerKeyService.class);
+
+    @Autowired
+    CentralConfigService centralConfigService;
+
+    @Autowired
+    SshAuthService sshAuthService;
+
+    @Override
+    public void execute(ArtifactoryRestRequest request, RestResponse response) {
+        boolean isPublic = Boolean.valueOf(request.getQueryParamByKey("public"));
+        List<String> fileNames = new ArrayList<>();
+        saveKeyToTempFolder(request, fileNames, response);
+        installKey(response, isPublic, fileNames, request.getServletRequest());
+    }
+
+    private void saveKeyToTempFolder(ArtifactoryRestRequest artifactoryRequest, List<String> fileNames,
+            RestResponse response) {
+        FileUpload uploadFile = (FileUpload) artifactoryRequest.getImodel();
+        String uploadDir = ContextHelper.get().getArtifactoryHome().getTempUploadDir().getAbsolutePath();
+        MultiPartUtils.createTempFolderIfNotExist(uploadDir);
+        try {
+            MultiPartUtils.saveFileDataToTemp(centralConfigService, uploadFile.getFormDataMultiPart(), uploadDir,
+                    fileNames, false);
+        } catch (Exception e) {
+            response.error(e.getMessage());
+        }
+    }
+
+    private void installKey(RestResponse artifactoryResponse, boolean isPublic, List<String> fileNames,
+            HttpServletRequest request) {
+        String uploadDir = ContextHelper.get().getArtifactoryHome().getTempUploadDir().getAbsolutePath();
+        ArtifactoryValidatedFile file = new ArtifactoryValidatedFile(uploadDir, fileNames.get(0));
+        try {
+            String key = FileUtils.readFileToString(file);
+            if (isPublic) {
+                sshAuthService.savePublicKey(key);
+                artifactoryResponse.info("Public key is installed");
+            } else {
+                sshAuthService.savePrivateKey(key);
+                artifactoryResponse.info("Private key is installed");
+            }
+            String publicKeyDownloadTarget = getKeyLink(request);
+            SignKey signKey = new SignKey();
+            signKey.setPublicKeyLink(publicKeyDownloadTarget);
+            Files.removeFile(file);
+            artifactoryResponse.iModel(signKey);
+        } catch (Exception e) {
+            log.error(e.toString());
+            artifactoryResponse.error(e.toString());
+        }
+    }
+
+    private String getKeyLink(HttpServletRequest request) {
+        return Joiner.on('/').join(HttpUtils.getServletContextUrl(request),
+                "api", "ssh", "key/public");
+    }
+}

@@ -1,0 +1,1 @@
+ALTER TABLE version_history ADD active SMALLINT DEFAULT 1;

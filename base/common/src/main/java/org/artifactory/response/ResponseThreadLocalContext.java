@@ -1,0 +1,58 @@
+/*
+ *
+ * Artifactory is a binaries repository manager.
+ * Copyright (C) 2018 JFrog Ltd.
+ *
+ * Artifactory is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ * Artifactory is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+package org.artifactory.response;
+
+/**
+ * @author Shay Yaakov
+ */
+public class ResponseThreadLocalContext {
+    private final ResponseWrapper responseWrapper;
+    private boolean abortedByClient = false;
+    private Integer statusCode = null;
+
+    public static ResponseThreadLocalContext create(ResponseWrapper responseWrapper) {
+        return new ResponseThreadLocalContext(responseWrapper);
+    }
+
+    protected ResponseThreadLocalContext(ResponseWrapper responseWrapper) {
+        this.responseWrapper = responseWrapper;
+    }
+
+    protected ResponseWrapper getResponseThreadLocal() {
+        return responseWrapper;
+    }
+
+    protected boolean isAbortedByClient() {
+        return abortedByClient;
+    }
+
+    protected void setAbortedByClient(boolean abortedByClient) {
+        this.abortedByClient = abortedByClient;
+    }
+
+    protected Integer getStatusCode() {
+        return statusCode;
+    }
+
+    protected void setStatusCode(Integer statusCode) {
+        this.statusCode = statusCode;
+    }
+}

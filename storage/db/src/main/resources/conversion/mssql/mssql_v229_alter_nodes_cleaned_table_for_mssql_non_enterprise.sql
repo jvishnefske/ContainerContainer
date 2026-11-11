@@ -1,0 +1,1 @@
+CREATE INDEX nodes_cleaned_policy_key_policy_run_id_idx ON nodes_cleaned (policy_key, policy_run_id);

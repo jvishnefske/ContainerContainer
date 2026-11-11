@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- // @formatter:off -->
+<configuration debug="false">
+    <contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator"/>
+
+    <logger name="METRICS" additivity="false" level="INFO">
+        <appender-ref ref="METRICS-APPENDER"/>
+    </logger>
+
+    <appender name="METRICS-APPENDER" class="org.jfrog.metrics.MetricTimeBasedRollingFileAppender">
+        <File>${log.dir}/artifactory-metrics.log</File>
+        <intervalMs>900000</intervalMs>
+        <rollingPolicy class="org.jfrog.common.logging.logback.rolling.FixedWindowWithDateRollingPolicy">
+            <FileNamePattern>${log.dir.archived}/artifactory-metrics.%i.log.gz</FileNamePattern>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <MaxFileSize>25MB</MaxFileSize>
+        </triggeringPolicy>
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="org.jfrog.common.logging.logback.layout.BackTracePatternLayout">
+                <pattern>%m%n</pattern>
+            </layout>
+        </encoder>
+    </appender>
+
+    <appender name="TRAFFIC_V2" class="org.artifactory.traffic.TrafficTimeBasedRollingFileAppender">
+        <intervalMs>900000</intervalMs>
+        <File>${log.dir}/artifactory-traffic-v2.log</File>
+        <encoder>
+            <pattern>%m%n</pattern>
+        </encoder>
+        <rollingPolicy class="org.jfrog.common.logging.logback.rolling.FixedWindowWithDateRollingPolicy">
+            <maxIndex>150</maxIndex>
+            <FileNamePattern>${log.dir.archived}/artifactory-traffic-v2-%i.log.gz</FileNamePattern>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <MaxFileSize>1GB</MaxFileSize>
+        </triggeringPolicy>
+    </appender>
+
+    <logger name="org.artifactory.traffic.v2.TrafficLoggerV2" level="info" additivity="false">
+        <appender-ref ref="TRAFFIC_V2"/>
+    </logger>
+
+</configuration>

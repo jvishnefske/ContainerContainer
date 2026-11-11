@@ -1,0 +1,1 @@
+ALTER TABLE builds ADD INDEX repo_build_name_date_idx (repo, build_name, build_date), ALGORITHM=INPLACE, LOCK=NONE;

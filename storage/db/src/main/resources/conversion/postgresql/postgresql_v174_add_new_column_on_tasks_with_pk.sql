@@ -1,0 +1,1 @@
+ALTER TABLE tasks ADD COLUMN task_id BIGSERIAL,ADD CONSTRAINT tasks_pk PRIMARY KEY (task_id);

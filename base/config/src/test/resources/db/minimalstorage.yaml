@@ -1,0 +1,6 @@
+## unsupported db properties file
+artifactory:
+  database:
+    type: derby
+    url: jdbc:to:somewhere
+    driver: some.driver

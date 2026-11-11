@@ -1,0 +1,1 @@
+ALTER TABLE nodes ADD INDEX nodes_repo_created_idx (repo, created), ALGORITHM=INPLACE, LOCK=NONE;

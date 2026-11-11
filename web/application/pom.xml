@@ -1,0 +1,306 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Artifactory is a binaries repository manager.
+  ~ Copyright (C) 2018 JFrog Ltd.
+  ~
+  ~ Artifactory is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU Affero General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Artifactory is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU Affero General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU Affero General Public License
+  ~ along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+  -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>artifactory-web-application</artifactId>
+    <packaging>jar</packaging>
+    <name>Artifactory Web Application</name>
+
+    <parent>
+        <artifactId>artifactory-web-parent</artifactId>
+        <groupId>org.artifactory</groupId>
+        <version>7.161.15</version>
+    </parent>
+
+    <build>
+        <resources>
+            <resource>
+                <directory>src/main/java</directory>
+                <excludes>
+                    <exclude>**/*.java</exclude>
+                </excludes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <includes>
+                    <include>**/*</include>
+                </includes>
+                <excludes>
+                    <exclude>**/*.java</exclude>
+                </excludes>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <artifactId>maven-clean-plugin</artifactId>
+                <configuration>
+                    <filesets>
+                        <fileset>
+                            <directory>${project.basedir}/src/main/resources</directory>
+                            <includes>
+                                <include>img/**</include>
+                                <include>js/**</include>
+                                <include>index.html</include>
+                                <include>rtui/**</include>
+                                <include>retention/**</include>
+                                <include>packages/**</include>
+                                <include>buildinfomfe/**</include>
+                            </includes>
+                        </fileset>
+                    </filesets>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>unpack-services</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>unpack</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>org.artifactory</groupId>
+                                    <artifactId>artifactory-mfe-core</artifactId>
+                                    <type>tar.gz</type>
+                                    <outputDirectory>
+                                        ${project.build.directory}/mfe-core-extract
+                                    </outputDirectory>
+                                </artifactItem>
+                                <artifactItem>
+                                    <groupId>org.artifactory</groupId>
+                                    <artifactId>artifactory-packages-mfe</artifactId>
+                                    <type>tar.gz</type>
+                                    <outputDirectory>
+                                        ${project.build.directory}/mfe-packages-extract/packages
+                                    </outputDirectory>
+                                </artifactItem>
+                                <artifactItem>
+                                    <groupId>org.artifactory</groupId>
+                                    <artifactId>artifactory-rtui-mfe</artifactId>
+                                    <type>tar.gz</type>
+                                    <outputDirectory>
+                                        ${project.build.directory}/mfe-rtui-extract/rtui
+                                    </outputDirectory>
+                                </artifactItem>
+                                <artifactItem>
+                                    <groupId>org.artifactory</groupId>
+                                    <artifactId>artifactory-buildinfomfe-mfe</artifactId>
+                                    <type>tar.gz</type>
+                                    <outputDirectory>
+                                        ${project.build.directory}/mfe-buildinfomfe-extract/buildinfomfe
+                                    </outputDirectory>
+                                </artifactItem>
+<!--                                <artifactItem>-->
+<!--                                    <groupId>org.artifactory</groupId>-->
+<!--                                    <artifactId>artifactory-retention-mfe</artifactId>-->
+<!--                                    <type>tar.gz</type>-->
+<!--                                    <outputDirectory>-->
+<!--                                        ${project.build.directory}/mfe-retention-extract/retention-->
+<!--                                    </outputDirectory>-->
+<!--                                </artifactItem>-->
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>copy-resources</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.basedir}/src/main/resources</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.build.directory}/mfe-core-extract/core-mfe</directory>
+                                </resource>
+                                <resource>
+                                    <directory>${project.build.directory}/mfe-rtui-extract/</directory>
+                                </resource>
+                                <resource>
+                                    <directory>${project.build.directory}/mfe-packages-extract/</directory>
+                                </resource>
+                                <resource>
+                                    <directory>${project.build.directory}/mfe-buildinfomfe-extract/</directory>
+                                </resource>
+                            </resources>
+                            <overwrite>true</overwrite>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-common</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.jfrog.common</groupId>
+                    <artifactId>jfrog-http-client5</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-traffic</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jfrog.storage</groupId>
+            <artifactId>binary-store-core</artifactId>
+            <exclusions>
+                <exclusion>
+                        <groupId>com.sun.activation</groupId>
+                        <artifactId>javax.activation</artifactId>
+                </exclusion>
+            </exclusions>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-rest</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-rest-ui</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-core</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-lifecycle</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>build-handler-bridge</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.jfrog.build</groupId>
+            <artifactId>build-handler-service</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jfrog.access</groupId>
+            <artifactId>access-client-core</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.jfrog.common</groupId>
+                    <artifactId>jfrog-http-client5</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.jfrog.common</groupId>
+                    <artifactId>jfrog-multitenant-infra</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.projectreactor</groupId>
+                    <artifactId>reactor-core</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-config</artifactId>
+            <type>test-jar</type>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.common</groupId>
+            <artifactId>jfrog-utils</artifactId>
+            <type>test-jar</type>
+        </dependency>
+
+        <dependency>
+            <groupId>org.codehaus.plexus</groupId>
+            <artifactId>plexus-utils</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jdom</groupId>
+            <artifactId>jdom2</artifactId>
+        </dependency>
+
+        <!-- for cron expressions validation -->
+        <dependency>
+            <groupId>org.quartz-scheduler</groupId>
+            <artifactId>quartz</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.ocpsoft.prettytime</groupId>
+            <artifactId>prettytime</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.eclipsesource.minimal-json</groupId>
+            <artifactId>minimal-json</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.zafarkhaja</groupId>
+            <artifactId>java-semver</artifactId>
+        </dependency>
+    </dependencies>
+</project>

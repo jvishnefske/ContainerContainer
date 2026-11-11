@@ -1,0 +1,54 @@
+<!--
+  ~ Artifactory is a binaries repository manager.
+  ~ Copyright (C) 2018 JFrog Ltd.
+  ~
+  ~ Artifactory is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU Affero General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Artifactory is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU Affero General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU Affero General Public License
+  ~ along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+  -->
+
+<assembly xmlns="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.2"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.2 http://maven.apache.org/xsd/assembly-1.1.2.xsd">
+    <id>bins-base</id>
+    <formats>
+        <format>dir</format>
+        <format>tar.gz</format>
+    </formats>
+    <includeBaseDirectory>true</includeBaseDirectory>
+    <baseDirectory>${zipDirname}-${project.version}</baseDirectory>
+    <fileSets>
+        <fileSet>
+            <directory>${project.basedir}/../base/config/src/main/resources/META-INF/default</directory>
+            <outputDirectory>/app/misc/etc/artifactory</outputDirectory>
+            <directoryMode>755</directoryMode>
+            <fileMode>644</fileMode>
+            <excludes>
+                <!-- default derby.properties is copied in runtime -->
+                <exclude>db/**</exclude>
+            </excludes>
+        </fileSet>
+    </fileSets>
+    <dependencySets>
+        <!-- add the artifactory war file to the webapp dir -->
+        <dependencySet>
+            <outputDirectory>app/artifactory/tomcat/webapps</outputDirectory>
+            <outputFileNameMapping>artifactory.war</outputFileNameMapping>
+            <useStrictFiltering>true</useStrictFiltering>
+            <includes>
+                <include>org.artifactory:artifactory-web-war</include>
+            </includes>
+            <directoryMode>755</directoryMode>
+            <fileMode>644</fileMode>
+        </dependencySet>
+    </dependencySets>
+</assembly>

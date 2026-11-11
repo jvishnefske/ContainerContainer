@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- // @formatter:off -->
+<configuration debug="false">
+    <contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator"/>
+
+    <root>
+        <level value="warn"/>
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="FILE_STDOUT"/>
+    </root>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="org.jfrog.common.logging.logback.layout.BackTracePatternLayout">
+                <pattern>%m%n</pattern>
+            </layout>
+        </encoder>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <File>${log.dir}/artifactory-service.log</File>
+        <encoder>
+            <pattern>%m%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="FILE_STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="org.artifactory.logging.layout.service.ServiceJsonLayout">
+            </layout>
+        </encoder>
+    </appender>
+</configuration>

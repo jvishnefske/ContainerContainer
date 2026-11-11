@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0          http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.artifactory</groupId>
+        <artifactId>artifactory-event-api-parent</artifactId>
+        <!-- Pinned to match event-api-parent/pom.xml. See the comment there. -->
+        <version>1.9.0</version>
+        <relativePath>../event-api-parent</relativePath>
+    </parent>
+
+    <groupId>org.artifactory</groupId>
+    <artifactId>artifactory-stats-event-api</artifactId>
+    <packaging>pom</packaging>
+    <version>1.x-SNAPSHOT</version>
+    <name>Stats Event API Parent</name>
+    <description>OpenAPI schema, generated proto, and Java + Go bindings for jfbus stats events (RTDEV-84772 / META-2762). Independent versioning from artifactory-index-event-api.</description>
+
+    <properties>
+        <!-- Per-domain values consumed by the shared pluginManagement in
+             artifactory-event-api-parent. -->
+        <java.package.name>com.jfrog.artifactory.eventapi.stats</java.package.name>
+        <go.package.name>jfrog.com/jfrog-artifactory-stats-event/statsevent</go.package.name>
+        <proto.module.artifactId>package-stats-event-proto</proto.module.artifactId>
+    </properties>
+
+    <modules>
+        <module>schema</module>
+        <module>classes</module>
+    </modules>
+</project>

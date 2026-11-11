@@ -1,0 +1,1 @@
+CREATE INDEX nodes_repo_created_idx ON nodes (repo, created) WITH (ONLINE = ON);

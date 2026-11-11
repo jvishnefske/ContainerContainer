@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>𓂀.𓉐.𓊖</groupId>
+    <artifactId>𓊃𓀀𓇳</artifactId>
+    <version>1.0.0-𓏤𓆑𓂧</version>
+    <name>𓏏𓏭𓂝𓅓𓇋𓇋𓎛𓏭𓄿𓏛</name>
+    <description>𓋹𓇋𓊪𓅱𓇋𓏏𓏭 𓆓𓂧𓂝𓏛𓀀𓇋𓏭𓂋𓏤 𓊃𓀀𓇳𓏤𓂻</description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.14.0</version>
+        </dependency>
+    </dependencies>
+
+</project>

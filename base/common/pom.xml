@@ -1,0 +1,371 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Artifactory is a binaries repository manager.
+  ~ Copyright (C) 2018 JFrog Ltd.
+  ~
+  ~ Artifactory is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU Affero General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Artifactory is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU Affero General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU Affero General Public License
+  ~ along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+  -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>artifactory-common</artifactId>
+    <packaging>jar</packaging>
+    <name>Artifactory Common</name>
+
+    <parent>
+        <artifactId>artifactory-base-parent</artifactId>
+        <groupId>org.artifactory</groupId>
+        <version>7.161.15</version>
+    </parent>
+
+    <properties>
+        <biz.version>7.2.3</biz.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.jfrog.worker</groupId>
+            <artifactId>client-java</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.jfrog.common</groupId>
+                    <artifactId>jfrog-multitenant-infra</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.module</groupId>
+                    <artifactId>jackson-module-parameter-names</artifactId>
+                </exclusion>
+                <exclusion>
+                    <artifactId>dnsjava</artifactId>
+                    <groupId>dnsjava</groupId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.github.seancfoley</groupId>
+                    <artifactId>ipaddress</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.common</groupId>
+            <artifactId>jfrog-http-client</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-base-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jfrog.rtfs</groupId>
+            <artifactId>client-java-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-event-queue-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jfrog.security</groupId>
+            <artifactId>${jfrog.crypto.artifactId}</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-base-rest</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-utils</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-config</artifactId>
+            <exclusions>
+                <exclusion>
+                    <artifactId>netty-transport-native-unix-common</artifactId>
+                    <groupId>io.netty</groupId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>artifactory-config</artifactId>
+            <type>test-jar</type>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jfrog.buildinfo</groupId>
+            <artifactId>build-info-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.derby</groupId>
+            <artifactId>derby</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.sshd</groupId>
+            <artifactId>sshd-core</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-model</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-core</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>io.micrometer</groupId>
+                    <artifactId>micrometer-observation</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-config</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-web</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>commons-codec</groupId>
+            <artifactId>commons-codec</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpclient</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-artifact</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-settings</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-repository-metadata</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.jakarta.rs</groupId>
+            <artifactId>jackson-jakarta-rs-json-provider</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.module</groupId>
+            <artifactId>jackson-module-jakarta-xmlbind-annotations</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>joda-time</groupId>
+            <artifactId>joda-time</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.tukaani</groupId>
+            <artifactId>xz</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.quartz-scheduler</groupId>
+            <artifactId>quartz</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.dropwizard.metrics</groupId>
+            <artifactId>metrics-core</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.glassfish.jersey.core</groupId>
+            <artifactId>jersey-server</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.metadata</groupId>
+            <artifactId>metadata-client-api</artifactId>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.annotation</groupId>
+            <artifactId>jakarta.annotation-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jfrog.common</groupId>
+            <artifactId>support-common</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jfrog.common</groupId>
+            <artifactId>jfrog-base</artifactId>
+            <scope>compile</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jfrog.common</groupId>
+            <artifactId>support-rest</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jfrog.common</groupId>
+            <artifactId>jfrog-utils</artifactId>
+            <type>test-jar</type>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.common</groupId>
+            <artifactId>metrics</artifactId>
+            <exclusions>
+                <exclusion>
+                    <artifactId>simpleclient</artifactId>
+                    <groupId>io.prometheus</groupId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.httpcomponents</groupId>
+                    <artifactId>httpcore</artifactId>
+                </exclusion>
+                <exclusion>
+                    <artifactId>kotlin-stdlib-jdk8</artifactId>
+                    <groupId>org.jetbrains.kotlin</groupId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>io.prometheus</groupId>
+            <artifactId>simpleclient_common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.media</groupId>
+            <artifactId>jersey-media-multipart</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.jfrog.ph</groupId>
+            <artifactId>package-handler-acl</artifactId>
+            <version>${jfrog.package.handler.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.jetbrains</groupId>
+                    <artifactId>annotations</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.jfconnect</groupId>
+            <artifactId>jfconnect-client-api</artifactId>
+            <exclusions>
+                <exclusion>
+                    <artifactId>hibernate-validator</artifactId>
+                    <groupId>org.hibernate.validator</groupId>
+                </exclusion>
+                <exclusion>
+                    <artifactId>netty-transport-native-unix-common</artifactId>
+                    <groupId>io.netty</groupId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>biz.aQute.bnd</groupId>
+            <artifactId>biz.aQute.bndlib</artifactId>
+            <version>${biz.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.skyscreamer</groupId>
+            <artifactId>jsonassert</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.rtfs</groupId>
+            <artifactId>artifactory-federation-dto</artifactId>
+        </dependency>
+        <!-- OpenTelemetry dependencies -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-extension-trace-propagators</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jfrog.eventing</groupId>
+            <artifactId>jfrog-eventing-facade-impl</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.jfrog.eventing</groupId>
+                    <artifactId>jfrog-eventing-client-kafka-adapter</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.artifactory</groupId>
+            <artifactId>package-index-event-java</artifactId>
+        </dependency>
+    </dependencies>
+</project>

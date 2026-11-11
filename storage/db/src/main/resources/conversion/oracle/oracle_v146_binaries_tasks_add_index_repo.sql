@@ -1,0 +1,1 @@
+CREATE INDEX binaries_tasks_repo_key_idx ON binaries_tasks (local_repo_key) ONLINE;

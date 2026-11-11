@@ -1,0 +1,1 @@
+ALTER TABLE request_logs ALTER COLUMN username SET STATISTICS 1000;

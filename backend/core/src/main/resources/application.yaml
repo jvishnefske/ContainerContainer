@@ -1,0 +1,74 @@
+artifactory:
+    ## Load Healer activities default configuration
+    lh:
+        example: # activity name
+            threshold: # threshold configuration
+                min: "1" # min threshold
+                max: "2" # max threshold
+                healthyTimeout: "300" # healthy timeout in milliseconds
+
+        test:
+            threshold:
+                min: "1"
+                max: "2"
+                healthyTimeout: "300"
+
+        xrayBlockUnscanned:
+            threshold:
+                min: ${artifactory.tomcat.connector.maxThreads} * 0.5
+                max: ${artifactory.tomcat.connector.maxThreads} * 0.8
+                healthyTimeout: "60000"
+
+        xrayDownloadBlocked:
+            threshold:
+                min: ${artifactory.tomcat.connector.maxThreads} * 0.5
+                max: ${artifactory.tomcat.connector.maxThreads} * 0.8
+                healthyTimeout: "60000"
+
+        qrlLowPriorityRequests:
+            threshold:
+                min: ${artifactory.tomcat.connector.maxThreads} * 0.5
+                max: ${artifactory.tomcat.connector.maxThreads} * 0.8
+                healthyTimeout: "60000"
+
+        curationCachedPackageStatus:
+            threshold:
+                min: ${artifactory.tomcat.connector.maxThreads} * 0.5
+                max: ${artifactory.tomcat.connector.maxThreads} * 0.8
+                healthyTimeout: "60000"
+
+        parallelUploadPreRepoKey:
+            threshold:
+                min: ${artifactory.tomcat.connector.maxThreads} * 0.5
+                max: ${artifactory.tomcat.connector.maxThreads} * 0.8
+                healthyTimeout: "60000"
+
+        parallelDownloadUploadPerPackageType:
+            threshold:
+                min: ${artifactory.tomcat.connector.maxThreads} * 0.5
+                max: ${artifactory.tomcat.connector.maxThreads} * 0.85
+                healthyTimeout: "60000"
+
+        limitUser:
+            threshold:
+                min: ${artifactory.tomcat.connector.maxThreads} * 0.5
+                max: ${artifactory.tomcat.connector.maxThreads} * 0.8
+                healthyTimeout: "60000"
+
+        limitModule:
+            threshold:
+                min: ${artifactory.tomcat.connector.maxThreads} * 0.5
+                max: ${artifactory.tomcat.connector.maxThreads} * 0.9
+                healthyTimeout: "60000"
+
+        limitEndPoint:
+            threshold:
+                min: ${artifactory.tomcat.connector.maxThreads} * 0.5
+                max: ${artifactory.tomcat.connector.maxThreads} * 0.8
+                healthyTimeout: "60000"
+
+        limitActivity:
+            threshold:
+                min: ${artifactory.tomcat.connector.maxThreads} * 0.5
+                max: ${artifactory.tomcat.connector.maxThreads} * 0.9
+                healthyTimeout: "60000"

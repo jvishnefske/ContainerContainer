@@ -1,0 +1,1 @@
+ALTER TABLE trusted_keys ADD key_type VARCHAR2(255) DEFAULT 'PGP' NOT NULL;

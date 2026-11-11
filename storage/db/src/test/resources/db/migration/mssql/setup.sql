@@ -1,0 +1,1 @@
+CREATE DATABASE ${schema} COLLATE Latin1_General_CS_AI;

@@ -1,0 +1,1 @@
+ALTER TABLE version_history ADD COLUMN active SMALLINT DEFAULT 1;

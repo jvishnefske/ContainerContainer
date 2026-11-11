@@ -1,0 +1,24 @@
+artifactory:
+  database:
+    type: oracle
+    driver: oracle.jdbc.OracleDriver
+    url: jdbc:oracle:thin:@localhost:1521:xe
+    username: sysdba
+    password: oracle
+
+    # test non-locking parameter
+    maxOpenConnections: 15
+
+    # locking db specific properties
+    lockingdb.type: postgresql
+    lockingdb.driver: org.postgresql.Driver
+    lockingdb.url: jdbc:postgresql://localhost:5432/lockdb
+    lockingdb.username: lockdbuser
+    lockingdb.password: lockdbpass
+    lockingdb.defaultCatalog: lockingcatalog
+    lockingdb.validationQuery: "select 1"
+
+    # non standard params
+    isolateInternalQueries: true
+    leakDetectionThreshold: 9999
+    maxWait: 888

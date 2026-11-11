@@ -1,0 +1,65 @@
+/*
+ *
+ * Artifactory is a binaries repository manager.
+ * Copyright (C) 2018 JFrog Ltd.
+ *
+ * Artifactory is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ * Artifactory is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+package org.artifactory.aql.result.rows;
+
+
+import java.util.Date;
+
+import static org.artifactory.aql.model.AqlDomainEnum.releaseBundles;
+import static org.artifactory.aql.model.AqlPhysicalFieldEnum.releaseBundleCreated;
+import static org.artifactory.aql.model.AqlPhysicalFieldEnum.releaseBundleId;
+import static org.artifactory.aql.model.AqlPhysicalFieldEnum.releaseBundleKeep;
+import static org.artifactory.aql.model.AqlPhysicalFieldEnum.releaseBundleName;
+import static org.artifactory.aql.model.AqlPhysicalFieldEnum.releaseBundleSignature;
+import static org.artifactory.aql.model.AqlPhysicalFieldEnum.releaseBundleSourceServiceId;
+import static org.artifactory.aql.model.AqlPhysicalFieldEnum.releaseBundleStatus;
+import static org.artifactory.aql.model.AqlPhysicalFieldEnum.releaseBundleStoringRepo;
+import static org.artifactory.aql.model.AqlPhysicalFieldEnum.releaseBundleType;
+import static org.artifactory.aql.model.AqlPhysicalFieldEnum.releaseBundleVersion;
+
+/**
+ * @author Nadavy
+ */
+@QueryTypes(value = releaseBundles, physicalFields = {releaseBundleId, releaseBundleName, releaseBundleVersion,
+        releaseBundleStatus, releaseBundleCreated, releaseBundleSignature, releaseBundleType, releaseBundleStoringRepo,
+        releaseBundleKeep, releaseBundleSourceServiceId })
+public interface AqlReleaseBundle extends AqlRowResult {
+
+    Long getReleaseId();
+
+    String getReleaseName();
+
+    String getReleaseVersion();
+
+    String getReleaseStatus();
+
+    Date getReleaseCreated();
+
+    String getReleaseSignature();
+
+    String getReleaseType();
+
+    String getStoringRepo();
+
+    Integer getKeep();
+
+    String getSourceServiceId();
+}

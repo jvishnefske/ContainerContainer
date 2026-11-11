@@ -1,0 +1,21 @@
+type: nuget #The package type
+repositories:   #A list of local and remote repositories that will be aggregated under this virtual repository
+    - my-local-repo-1
+    - my-remote-repo-1
+description: ""   #A free text field that describes the content and purpose of the repository
+notes: ""   #A free text field to add additional notes about the repository
+dockerApiVersion: V1   #Only for Docker repositories. The Docker API version
+includesPattern: "**/*"  #Provides a way to filter out specific repositories when trying to resolve the location of different artifacts (Ant-like pattern)
+excludesPattern: "" #Provides a way to filter out specific repositories when trying to resolve the location of different artifacts (Ant-like pattern)
+externalDependencies:  #Only for npm repositories. External dependencies configuration.
+    enabled: "false"   #When set, dependency rewrite for the specified npm repository will be enabled
+    patterns:   #Optional include patterns to match external dependencies. Ant-style path expressions are supported (*, **, ?). For example, specifying **/github.com/** will only allow external dependencies from github.com host
+        - "**/github.com/**"
+keyPair: keypairvirtual1   #Only for nuget repositories, for WebStart and Jar signing. The alias of the keypair configured in the Signing Keys page
+enableNormalizedVersion: true #Only for NuGet repositories. To process only normalized version repositories
+forceNugetAuthentication: "true"   #Only for NuGet repositories. Force basic authentication credentials in order to use this repository
+pomRepositoryReferencesCleanupPolicy: discard_any_reference  #Only for nuget repositories. (1) Discard Active References - Removes repository elements that are declared directly under project or under a profile in the same POM that is activeByDefault. (2) Discard Any References - Removes all repository elements regardless of whether they are included in an active profile or not. (3) Nothing - Does not remove any repository elements declared in the POM.
+repoLayout: nuget-2-default   #Sets the layout that the repository should use for storing and identifying modules
+virtualCacheConfig:
+    virtualRetrievalCachePeriodSecs: "600"   #This value refers to the number of seconds to cache metadata files before checking for newer versions on aggregated repositories. A value of 0 indicates no caching
+artifactoryRequestsCanRetrieveRemoteArtifacts: "false"   #Determines whether artifact requests coming from other instance of Artifactory can be fulfilled by accessing this virtual repository's remote repositories, or by only accessing its caches (default)

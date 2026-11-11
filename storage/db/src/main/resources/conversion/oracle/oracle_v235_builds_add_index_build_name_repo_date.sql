@@ -1,0 +1,1 @@
+CREATE INDEX repo_build_name_date_idx ON builds (repo, build_name, build_date) ONLINE;

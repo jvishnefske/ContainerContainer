@@ -1,0 +1,4 @@
+artifactory:
+    database:
+        type: derby
+        AllowNonPostgresql: false

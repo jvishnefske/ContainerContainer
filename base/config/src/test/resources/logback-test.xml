@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Artifactory is a binaries repository manager.
+  ~ Copyright (C) 2018 JFrog Ltd.
+  ~
+  ~ Artifactory is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU Affero General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Artifactory is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU Affero General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU Affero General Public License
+  ~ along with Artifactory.  If not, see <http://www.gnu.org/licenses/>.
+  -->
+
+<!-- This file is used when unit tests are executed -->
+<configuration>
+    <contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator"/>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%-30(%d{HH:mm:ss.SSS} [%thread]) [%-5p] \(%-20c{3}:%L\) - %m%n</pattern>
+        </encoder>
+    </appender>
+    <logger name="org.artifactory" value="warn"/>
+    <logger name="org.artifactory.schedule.Task" value="warn"/>
+    <logger name="org.artifactory.schedule.TaskCallback" value="error"/>
+    <logger name="org.artifactory.schedule.TaskServiceImpl" value="error"/>
+    <logger name="org.artifactory.test.setup" level="info"/>
+
+    <root level="warn">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+    <property name="throttle-expire-after-write-millis" value="${logging.throttle.expire.time.millis:-3600000}"/>
+    <property name="throttle-top-limit-counter" value="${logging.throttle.top.limit.counter:-100}"/>
+    <property name="throttle-cache-size" value="${logging.throttle.cache.size:-500}"/>
+
+    <turboFilter class="org.artifactory.logging.throttle.LogThrottleFilter">
+        <expiryTimeFrameMillis>${throttle-expire-after-write-millis}</expiryTimeFrameMillis>
+        <throttleTopLimit>${throttle-top-limit-counter}</throttleTopLimit>
+        <cacheSize>${throttle-cache-size}</cacheSize>
+    </turboFilter>
+
+</configuration>
