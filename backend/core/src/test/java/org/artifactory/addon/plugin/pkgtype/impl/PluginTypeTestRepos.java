@@ -9,6 +9,7 @@
 
 package org.artifactory.addon.plugin.pkgtype.impl;
 
+import org.artifactory.api.common.BasicStatusHolder;
 import org.artifactory.addon.plugin.pkgtype.PluginPackageTypes;
 import org.artifactory.descriptor.repo.RepoType;
 import org.artifactory.model.LocalConfig;
@@ -19,6 +20,7 @@ import org.artifactory.repo.Repo;
 import java.util.HashMap;
 import java.util.Map;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -46,7 +48,7 @@ public final class PluginTypeTestRepos {
         return config;
     }
 
-    /** A local, non-cache Generic repository of plugin package type {@code pluginType}. */
+    /** A local, non-cache Generic repository of plugin package type {@code pluginType} that allows downloads. */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static LocalRepo localRepo(String key, String pluginType) {
         LocalRepo repo = mock(LocalRepo.class);
@@ -55,6 +57,7 @@ public final class PluginTypeTestRepos {
         when(repo.isLocal()).thenReturn(true);
         when(repo.isCache()).thenReturn(false);
         when(repo.getRepoConfig()).thenReturn(config);
+        when(repo.checkDownloadIsAllowed(any())).thenReturn(new BasicStatusHolder());
         return repo;
     }
 

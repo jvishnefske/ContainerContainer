@@ -293,12 +293,41 @@ public class UploadServiceImpl implements UploadService, GracefulShutdownAware {
             return;
         }
 
+        checkDeployRouteAndUpload(request, response, targetRepository);
+    }
+
+    /**
+     * Validates the deploy, applies plugin package type routing and uploads.
+     *
+     * <p>The deploy check runs on the requested path before any plugin package type upload handler sees the request,
+     * so a principal that may not deploy there never reaches the handler or its reject message. When the handler
+     * rewrites the upload, the check runs again on the rewritten path before anything is stored.
+     */
+    @VisibleForTesting
+    void checkDeployRouteAndUpload(ArtifactoryRequest request, ArtifactoryResponse response,
+            LocalRepo<?, ?> targetRepository) throws IOException {
+        if (!deployAllowed(request, response, targetRepository)) {
+            return;
+        }
         Optional<ArtifactoryRequest> routed = routeByPluginPackageType(request, response, targetRepository);
         if (routed.isEmpty()) {
             return;
         }
-        request = routed.get();
+        ArtifactoryRequest finalRequest = routed.get();
+        if (finalRequest != request && !deployAllowed(finalRequest, response, targetRepository)) {
+            return;
+        }
+        adjustResponseAndUpload(finalRequest, response, targetRepository);
+    }
 
+    /**
+     * Runs the repository's deploy validation (path, include/exclude, permissions, quota and checksum policy) for
+     * {@code request}'s path, sending the rejection when it fails.
+     *
+     * @return {@code true} when the deploy may proceed; {@code false} when the error response has been sent
+     */
+    private boolean deployAllowed(ArtifactoryRequest request, ArtifactoryResponse response,
+            LocalRepo<?, ?> targetRepository) throws IOException {
         RepoPath repoPath = InternalRepoPathFactory.create(targetRepository.getKey(), request.getPath(),
                 request.getRepoPath().isFolder());
         try {
@@ -307,12 +336,11 @@ public class UploadServiceImpl implements UploadService, GracefulShutdownAware {
                     .assertValidDeployPathAndPermissions(new ValidDeployPathContext.Builder(targetRepository, repoPath)
                             .contentLength(contentLength).requestSha1(getSha1Checksum(request))
                             .requestSha2(getSha256Checksum(request)).build());
+            return true;
         } catch (RepoRejectException e) {
             handleInvalidDeployPathError(request, response, repoPath, e);
-            return;
+            return false;
         }
-
-        adjustResponseAndUpload(request, response, targetRepository);
     }
 
     /**
@@ -320,7 +348,8 @@ public class UploadServiceImpl implements UploadService, GracefulShutdownAware {
      * and repositories without a registered plugin type pass through unchanged. {@code Accept} keeps the request,
      * {@code Rewrite} to a path in the same repository returns a request translated to that path, and
      * {@code Reject} (or a rewrite into another repository, refused with 400) sends the error and returns empty so
-     * nothing is stored. A handler that throws is logged with type and plugin name and the upload proceeds.
+     * nothing is stored. A handler that throws fails closed: it is logged with type and plugin name and the upload
+     * is refused with 500, because a handler that validates uploads must not be bypassed by its own failure.
      *
      * @return the request to continue with, or empty when the response has already been sent
      */
@@ -338,9 +367,11 @@ public class UploadServiceImpl implements UploadService, GracefulShutdownAware {
         PluginTypeHandlers.UploadOutcome outcome = PluginTypeHandlers.decideUpload(type.get(), request, requested);
         if (outcome instanceof PluginTypeHandlers.UploadOutcome.Failed failed) {
             log.error("Upload handler of plugin package type '{}' (plugin '{}') failed for {}; " +
-                            "storing the upload unchanged: {}", type.get().name(), type.get().pluginName(),
+                            "refusing the upload: {}", type.get().name(), type.get().pluginName(),
                     requested, failed.error().getMessage(), failed.error());
-            return Optional.of(request);
+            response.sendError(HttpStatus.SC_INTERNAL_SERVER_ERROR, "Upload handler of package type '" +
+                    type.get().name() + "' failed; upload refused.", log);
+            return Optional.empty();
         }
         PluginTypeHandlers.UploadRoute route = PluginTypeHandlers.route(
                 ((PluginTypeHandlers.UploadOutcome.Decided) outcome).decision(), requested);

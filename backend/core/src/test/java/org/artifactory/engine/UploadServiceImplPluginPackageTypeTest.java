@@ -9,6 +9,14 @@
 
 package org.artifactory.engine;
 
+import org.artifactory.api.repo.exception.RepoRejectException;
+import org.artifactory.api.security.SecurityService;
+import org.artifactory.repo.service.InternalRepositoryService;
+import org.artifactory.repo.local.ValidDeployPathContext;
+import java.util.concurrent.atomic.AtomicInteger;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 import org.artifactory.addon.plugin.pkgtype.PluginPackageType;
 import org.artifactory.addon.plugin.pkgtype.PluginUploadHandler;
 import org.artifactory.addon.plugin.pkgtype.UploadDecision;
@@ -100,12 +108,53 @@ class UploadServiceImplPluginPackageTypeTest extends ArtifactoryHomeBoundJUnitTe
     }
 
     @Test
-    void handlerExceptionStoresUnchanged() throws Exception {
+    void handlerExceptionFailsClosedWith500() throws Exception {
         register((req, path) -> {
             throw new IllegalStateException("plugin bug");
         });
-        assertSame(request, service.routeByPluginPackageType(request, response, repo).orElseThrow());
-        verify(response, never()).sendError(anyInt(), any(), any());
+        assertTrue(service.routeByPluginPackageType(request, response, repo).isEmpty());
+        verify(response).sendError(eq(500), contains("upload refused"), any());
+    }
+
+    @Test
+    void deployDeniedOnRequestedPathNeverReachesHandler() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        register((req, path) -> {
+            calls.incrementAndGet();
+            return UploadDecision.reject(409, "plugin detail that must not leak");
+        });
+        InternalRepositoryService repoService = mock(InternalRepositoryService.class);
+        doThrow(new RepoRejectException("forbidden", 403)).when(repoService)
+                .assertValidDeployPathAndPermissions(any());
+        service.setRepoService(repoService);
+        service.setSecurityService(mock(SecurityService.class));
+
+        service.checkDeployRouteAndUpload(request, response, repo);
+
+        assertEquals(0, calls.get());
+        verify(response).sendError(eq(403), eq("forbidden"), any());
+        verify(response, never()).sendError(eq(409), any(), any());
+    }
+
+    @Test
+    void rewrittenPathIsCheckedForDeployAgain() throws Exception {
+        RepoPath target = RepoPathFactory.create("simple-local", "pool/a/a-1.0.tgz");
+        register((req, path) -> UploadDecision.rewrite(target));
+        InternalRepositoryService repoService = mock(InternalRepositoryService.class);
+        doAnswer(invocation -> {
+            ValidDeployPathContext ctx = invocation.getArgument(0);
+            if (ctx.getRepoPath().getPath().equals(target.getPath())) {
+                throw new RepoRejectException("forbidden at target", 403);
+            }
+            return null;
+        }).when(repoService).assertValidDeployPathAndPermissions(any());
+        service.setRepoService(repoService);
+        service.setSecurityService(mock(SecurityService.class));
+
+        service.checkDeployRouteAndUpload(request, response, repo);
+
+        verify(repoService, times(2)).assertValidDeployPathAndPermissions(any());
+        verify(response).sendError(eq(403), eq("forbidden at target"), any());
     }
 
     @Test

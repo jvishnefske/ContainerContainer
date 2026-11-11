@@ -85,6 +85,7 @@ import org.artifactory.model.RealRepoConfig;
 import org.artifactory.plugin.AltResponseHelper;
 import org.artifactory.projects.ProjectsService;
 import org.artifactory.repo.InternalRepoPathFactory;
+import org.artifactory.repo.RealRepo;
 import org.artifactory.repo.RemoteRepo;
 import org.artifactory.repo.RemoteRepoBase;
 import org.artifactory.repo.Repo;
@@ -1107,12 +1108,18 @@ public class DownloadServiceImpl implements InternalDownloadService, Entitlement
      * When the handler declines, throws (logged with type and plugin name), or the type is unregistered, returns
      * {@code false} and normal Generic handling follows.
      *
+     * <p>The handler is offered the request only when {@link RealRepo#checkDownloadIsAllowed} passes for the
+     * requested path: the repository is not blacked out, the path passes include/exclude patterns, and the current
+     * user can read it. Otherwise this returns {@code false} so the normal resolution path denies the request with
+     * its usual status, anonymous challenge and access-log entry. A handler therefore never serves content,
+     * including generated content such as an index, that a normal download of that path would refuse.
+     *
      * @return {@code true} when the handler produced the response, which has then been sent
      */
     @VisibleForTesting
     boolean respondedByPluginPackageType(InternalRequestContext requestContext, ArtifactoryResponse response,
             Repo<?, ?> repository) throws IOException {
-        if (pluginPackageTypeResolver == null) {
+        if (pluginPackageTypeResolver == null || !(repository instanceof RealRepo<?, ?> realRepo)) {
             return false;
         }
         Optional<PluginPackageType> type = pluginPackageTypeResolver.routableTypeOf(repository);
@@ -1121,6 +1128,11 @@ public class DownloadServiceImpl implements InternalDownloadService, Entitlement
         }
         Request request = requestContext.getRequest();
         RepoPath repoPath = request.getRepoPath();
+        if (realRepo.checkDownloadIsAllowed(repoPath).isError()) {
+            RepoRequests.logToContext("Plugin package type '%s' download handler skipped - download not allowed",
+                    type.get().name());
+            return false;
+        }
         PluginTypeHandlers.DownloadOutcome outcome =
                 PluginTypeHandlers.offerDownload(type.get(), request, repoPath, ResponseCtx::new);
         if (outcome instanceof PluginTypeHandlers.DownloadOutcome.Failed failed) {

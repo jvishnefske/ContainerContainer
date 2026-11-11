@@ -9,6 +9,7 @@
 
 package org.artifactory.engine;
 
+import org.artifactory.api.common.BasicStatusHolder;
 import org.apache.commons.io.IOUtils;
 import org.artifactory.addon.AddonsManager;
 import org.artifactory.addon.plugin.pkgtype.PluginPackageType;
@@ -94,6 +95,23 @@ class DownloadServiceImplPluginPackageTypeTest extends ArtifactoryHomeBoundJUnit
         assertEquals("{\"packages\":[]}",
                 IOUtils.toString(handle.getValue().getInputStream(), StandardCharsets.UTF_8));
         assertEquals(path, resource.getValue().getRepoPath());
+    }
+
+    @Test
+    void handlerNotOfferedWhenDownloadIsNotAllowed() throws Exception {
+        register(PluginPackageType.builder("simple", "simple-plugin").download((req, p, resp) -> {
+            calls.incrementAndGet();
+            resp.setMessage("generated index that must not leak");
+            return true;
+        }));
+        BasicStatusHolder denied = new BasicStatusHolder();
+        denied.error("forbidden", 403, org.slf4j.LoggerFactory.getLogger(getClass()));
+        when(repo.checkDownloadIsAllowed(path)).thenReturn(denied);
+
+        assertFalse(service.respondedByPluginPackageType(requestContext, response, repo));
+
+        assertEquals(0, calls.get());
+        verifyNoInteractions(requestResponseHelper);
     }
 
     @Test
