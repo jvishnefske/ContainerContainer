@@ -621,9 +621,18 @@ public class AccessFilter extends DelayedFilterBase implements SecurityListener 
      * 2. Prevent a cached external auth from using the UI for a prolonged period if that auth is already considered
      * invalid.
      */
-    private Authentication getCachedAuthentication(AuthCacheKey authCacheKey) {
+    @VisibleForTesting
+    Authentication getCachedAuthentication(AuthCacheKey authCacheKey) {
         Authentication nonUiCachedAuth = getNonUiAuthCache().get(authCacheKey);
-        return nonUiCachedAuth != null ? nonUiCachedAuth : getUiAuthCache().get(authCacheKey);
+        Authentication cached = nonUiCachedAuth != null ? nonUiCachedAuth : getUiAuthCache().get(authCacheKey);
+        // Fork: every cache read, not only the header path, drops a plugin-realm authentication that expired or whose
+        // plugin was reloaded or removed, so no fallback path (e.g. anonymous) can reuse a revoked login.
+        if (ExpiringAuthentication.isUnusable(cached, System.currentTimeMillis() / 1000)) {
+            getNonUiAuthCache().remove(authCacheKey);
+            getUiAuthCache().remove(authCacheKey);
+            return null;
+        }
+        return cached;
     }
 
     private void useAuthentication(HttpServletRequest request, HttpServletResponse response, FilterChain chain,

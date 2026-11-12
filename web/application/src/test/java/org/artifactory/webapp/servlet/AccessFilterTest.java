@@ -20,6 +20,9 @@
 
 package org.artifactory.webapp.servlet;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.OptionalLong;
+import org.artifactory.addon.plugin.groovy.PluginRealmAuthentication;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.jfrog.test.log.MemoryAppender;
@@ -96,6 +99,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -166,6 +170,32 @@ public class AccessFilterTest extends ArtifactoryHomeBoundJUnitTest {
         Awaitility.await()
                 .atMost(ConstantValues.securityUiAuthenticationCacheIdleTimeSecs.getInt() + 5, TimeUnit.SECONDS)
                 .untilAsserted(() -> assertNull(uiAuthCache.get(cacheKey)));
+    }
+
+    /**
+     * Every cache read (the header path and the anonymous fallback alike) drops a plugin-realm login that was revoked
+     * (plugin reloaded or removed) or expired, so no path can reuse it.
+     */
+    @Test
+    public void cachedPluginRealmLoginIsDroppedOnReadOnceRevokedOrExpired() throws ServletException {
+        AccessFilter accessFilter = getAccessFilter();
+        ConcurrentMap<AccessFilter.AuthCacheKey, Authentication> uiAuthCache = accessFilter.getUiAuthCache();
+        AtomicBoolean loaded = new AtomicBoolean(true);
+        AccessFilter.AuthCacheKey revokedKey = new AccessFilter.AuthCacheKey("Authorization: Bearer a", "127.0.0.1");
+        PluginRealmAuthentication live = new PluginRealmAuthentication(
+                new SimpleUser(new UserInfoBuilder("u").build()), "p", "r", OptionalLong.empty(), null, loaded::get);
+        uiAuthCache.put(revokedKey, live);
+        assertSame(live, accessFilter.getCachedAuthentication(revokedKey));
+
+        loaded.set(false);
+        assertNull(accessFilter.getCachedAuthentication(revokedKey));
+        assertNull(uiAuthCache.get(revokedKey));
+
+        AccessFilter.AuthCacheKey expiredKey = new AccessFilter.AuthCacheKey("Authorization: Bearer b", "127.0.0.1");
+        uiAuthCache.put(expiredKey, new PluginRealmAuthentication(new SimpleUser(new UserInfoBuilder("u").build()),
+                "p", "r", OptionalLong.of(1), null));
+        assertNull(accessFilter.getCachedAuthentication(expiredKey));
+        assertNull(uiAuthCache.get(expiredKey));
     }
 
     @ParameterizedTest
