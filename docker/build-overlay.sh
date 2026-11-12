@@ -44,10 +44,12 @@ docker run --rm --network none --entrypoint ls "$BASE_IMAGE" "$WEBAPP_LIB" | LC_
 grep -qx "artifactory-core-$SRC_VER.jar" "$CTX/overlay/stock" \
     || die "stock image has no artifactory-core-$SRC_VER.jar; is BASE_IMAGE the matching release?"
 
-# Jars to replace: every stock artifactory-*-<SRC_VER>.jar, each built exactly once in this checkout.
+# Jars to replace: every stock artifactory-*-<SRC_VER>.jar, each built exactly once in this checkout. Agent
+# worktrees under .claude/ and .git/ are skipped, so their build outputs never count as duplicates.
 : > "$CTX/overlay/replace"
 while read -r jar; do
-    mapfile -t built < <(find "$ROOT" -path "$ROOT/web/war" -prune -o -path '*/node_modules' -prune -o \
+    mapfile -t built < <(find "$ROOT" -path "$ROOT/web/war" -prune -o -path "$ROOT/.claude" -prune -o -path "$ROOT/.git" -prune \
+        -o -path '*/node_modules' -prune -o \
         -type f -path "*/target/$jar" -print)
     [ "${#built[@]}" -eq 1 ] || die "stock jar $jar has ${#built[@]} built counterparts (${built[*]:-none})"
     cp "${built[0]}" "$CTX/overlay/lib/$jar"
