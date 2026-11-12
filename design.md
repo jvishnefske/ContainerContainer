@@ -633,6 +633,43 @@ requirements through the OIDC plugin.
       web/rest 1220 run 0 failed, web/rest-ui 3069 run 0 failed (3 skipped),
       web/application 537 run 0 failed.
 
+## WASM plugin runtime
+
+WebAssembly plugins run beside Groovy plugins on Endive (`run.endive`, Apache-2.0, pinned to 1.2.0), a pure-JVM
+runtime. Unlike a Groovy plugin, which has full JVM access, a WASM module can reach only the host functions listed
+here, within limits the administrator sets, so modules can come from parties who are not trusted with the JVM. WASM
+hooks feed the same Java enforcement as Groovy ones: realm results go through P1-P6, executions through G4 and G7.
+
+- [ ] W1. A plugin is `<name>.wasm` plus a manifest `<name>.wasm.yaml` in the plugins directory, loaded at startup and
+      by `POST /api/plugins/reload` together with Groovy plugins and reported in plugin status. The manifest declares
+      the hooks the module implements (realms with name and policy, executions with users, groups and method), its
+      capabilities (allowed HTTPS hosts), its limits (linear memory pages, per-call deadline, maximum request and
+      response sizes) and an opaque `config` value handed to the module as JSON. A missing or invalid manifest, a
+      module that fails validation or instantiation, or a module whose ABI version differs fails that plugin's load
+      with a clear status and registers nothing.
+- [ ] W2. ABI version 1: the module exports `cc_abi_version() -> i32` (returns 1), `cc_alloc(len) -> ptr`,
+      `cc_free(ptr, len)`, and one export per declared hook: `cc_realm_authenticate`, `cc_realm_bearer`,
+      `cc_execution`. Each hook takes `(ptr, len)` of a UTF-8 JSON request and returns an `i64` packing `(ptr << 32) |
+      len` of a UTF-8 JSON response that the host reads and then frees. Realm responses map one to one onto
+      `authenticated` / `notMine` / `rejected`; execution responses carry status, headers and body.
+- [ ] W3. Host functions, module `cc`, are the module's only way out: `log(level, ptr, len)`; `now_seconds()`;
+      `http_get(req) -> resp` for HTTPS GETs to hosts the manifest allows, without redirects, with a timeout and a
+      response-size cap; `crypto_verify(req) -> result` for RS256, RS384, RS512, PS256 and ES256 signatures over
+      caller-supplied bytes with a JWK key; `kv_get` / `kv_put` / `kv_delete` on a small per-plugin in-memory store
+      with entry and total size caps and expiry, so a module can cache across calls and instances; and, in execution
+      calls only, `create_access_token(req)` with the same rules as P4. WASI preview 1 is offered with no preopened
+      directories, no environment, no arguments, stdout and stderr routed to the plugin log, and random from the JVM's
+      secure source. Any other import fails the load.
+- [ ] W4. Sandboxing is enforced by the host, not trusted to the module: Endive's interpreter by default; linear memory
+      capped by the manifest; each call runs on a bounded worker pool with a deadline, after which the call is
+      interrupted. A trap, timeout, out-of-memory, oversized or malformed response, or ABI violation fails closed: a
+      realm call counts as "not mine" and is reported, and an execution answers 500. Instances are pooled per plugin,
+      one call at a time each, and are discarded after any failure, so a failed call never leaves state for the next
+      one.
+- [ ] W5. A public example module (Rust, `wasm32-wasip1`) under `plugins/wasm-examples/` exercises every hook and host
+      function. The Java tests run it from a committed build; CI rebuilds it from source and checks it matches.
+- [ ] W6. With no WASM plugins, behavior and test suites are unchanged, and Groovy plugins work as before.
+
 ## Out of scope for the first iteration
 
 - Remote and virtual repositories of plugin types (the `HttpRepoFactory` hook
