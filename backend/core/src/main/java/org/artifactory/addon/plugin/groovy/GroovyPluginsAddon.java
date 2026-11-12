@@ -17,6 +17,10 @@ import org.artifactory.addon.plugin.PluginsAddon;
 import org.artifactory.addon.plugin.ResponseCtx;
 import org.artifactory.addon.plugin.pkgtype.PluginPackageType;
 import org.artifactory.addon.plugin.pkgtype.PluginPackageTypeRegistry;
+import org.artifactory.addon.plugin.wasm.HostEffects;
+import org.artifactory.addon.plugin.wasm.ServletRequestContext;
+import org.artifactory.addon.plugin.wasm.WasmPluginLoader;
+import org.artifactory.addon.plugin.wasm.WasmWorkers;
 import org.artifactory.api.context.ContextHelper;
 import org.artifactory.api.properties.PropertiesService;
 import org.artifactory.api.repo.RepositoryService;
@@ -58,6 +62,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -72,6 +77,9 @@ import java.util.function.Supplier;
  * avoids construction cycles with the repository services that themselves call this addon. The package type
  * registry is optional so the engine still starts in a build without it; plugins that declare package types
  * then fail to load with an explanatory status.
+ *
+ * <p>WASM plugins ({@code <name>.wasm} plus {@code <name>.wasm.yaml}) are loaded beside Groovy scripts by a
+ * {@link WasmPluginLoader} the engine calls on every reload; their realms and executions join the same snapshot.
  *
  * <p>Plugin realms are served by {@link PluginRealmAuthenticationProvider}, which reads them from the current
  * snapshot; {@link #executeAdditiveRealmPlugins} applies additive realms through it.
@@ -110,12 +118,10 @@ public class GroovyPluginsAddon implements PluginsAddon, ContextReadinessListene
                         pluginName -> bindings(pluginName,
                                 new PluginRepositories(repositoryService.getObject(), propertiesService.getObject(),
                                         path -> authorizationService.getObject().canRead(path)),
-                                new PluginSecurity(securityService.getObject(),
-                                        name -> RealmDirectory.over(userGroupService.getObject()).findUser(name),
-                                        accessTokenMinter(pluginName, accessService),
-                                        AuthenticationHelper::getAuthentication,
-                                        () -> System.currentTimeMillis() / 1000)),
-                        HookFailureReporter.logging()),
+                                pluginSecurity(pluginName, securityService, userGroupService, accessService)),
+                        HookFailureReporter.logging(),
+                        wasmLoader(pluginName ->
+                                pluginSecurity(pluginName, securityService, userGroupService, accessService))),
                 () -> currentCaller(securityService.getObject(), userGroupService.getObject()),
                 command -> {
                     ArtifactoryExecutorService executor = executorService.getIfUnique();
@@ -182,6 +188,30 @@ public class GroovyPluginsAddon implements PluginsAddon, ContextReadinessListene
         bindings.put("security", security);
         bindings.put("realm", RealmResults.INSTANCE);
         return bindings;
+    }
+
+    /** The {@code security} binding of a plugin, also used by WASM plugins to mint tokens (P4). */
+    private static PluginSecurity pluginSecurity(String pluginName, ObjectProvider<SecurityService> securityService,
+            ObjectProvider<UserGroupService> userGroupService, ObjectProvider<AccessService> accessService) {
+        return new PluginSecurity(securityService.getObject(),
+                name -> RealmDirectory.over(userGroupService.getObject()).findUser(name),
+                accessTokenMinter(pluginName, accessService),
+                AuthenticationHelper::getAuthentication,
+                () -> System.currentTimeMillis() / 1000);
+    }
+
+    /**
+     * The loader of WASM plugins ({@code <name>.wasm} with {@code <name>.wasm.yaml}): steps run on one shared
+     * {@link WasmWorkers} pool, effects are performed by {@link HostEffects} with the plugin's limits, and tokens are
+     * minted through the same {@link PluginSecurity} path as Groovy executions.
+     */
+    static PluginLoader wasmLoader(Function<String, PluginSecurity> securityFor) {
+        WasmWorkers workers = WasmWorkers.standard();
+        return new WasmPluginLoader(workers,
+                (pluginName, limits) -> new HostEffects(HostEffects.client(limits.httpTimeoutMs()),
+                        limits.httpTimeoutMs(), limits.maxHttpBodyBytes(), securityFor.apply(pluginName)),
+                new ServletRequestContext(),
+                () -> System.currentTimeMillis() / 1000);
     }
 
     /**

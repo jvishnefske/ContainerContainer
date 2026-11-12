@@ -11,7 +11,6 @@
 
 package org.artifactory.addon.plugin.groovy;
 
-import groovy.lang.Closure;
 import org.artifactory.factory.InfoFactoryHolder;
 import org.artifactory.security.AnonymousAuthenticationToken;
 import org.artifactory.security.MutableUserInfo;
@@ -35,8 +34,8 @@ import java.util.function.Supplier;
  * Authenticates credentials against the loaded plugin realms and carries out what {@link RealmGrantPolicy} decides.
  *
  * <p>Exclusive realms are asked in load order (plugin file name, then declaration order). For each realm that
- * declares the relevant closure ({@code authenticate} for user name and password, {@code bearer} for a token) the
- * answer is classified by {@link RealmInvoker}:
+ * declares the relevant hook ({@code authenticate} for user name and password, {@code bearer} for a token), whether
+ * a Groovy closure or a hosted WASM call ({@link RealmHook}), the answer is classified by {@link RealmInvoker}:
  * <ul>
  *     <li>not mine: the next realm is asked; when no realm claims the credentials the result is empty and the
  *         caller continues with the next provider or the stock path;</li>
@@ -187,14 +186,14 @@ public final class PluginRealmAuthenticator {
                 || "org.artifactory.security.access.AccessResponseAuthentication".equals(type.getName());
     }
 
-    private Optional<Authentication> firstClaim(Function<PluginRealm, Optional<Closure<?>>> pick, String closureName,
+    private Optional<Authentication> firstClaim(Function<PluginRealm, Optional<RealmHook>> pick, String closureName,
             Object details, Object... args) {
         for (PluginRealm realm : realms.get()) {
-            Optional<Closure<?>> closure = pick.apply(realm);
-            if (realm.policy() != PluginRealm.Policy.EXCLUSIVE || closure.isEmpty()) {
+            Optional<RealmHook> hook = pick.apply(realm);
+            if (realm.policy() != PluginRealm.Policy.EXCLUSIVE || hook.isEmpty()) {
                 continue;
             }
-            RealmResult result = RealmInvoker.result(realm, closure.get(),
+            RealmResult result = RealmInvoker.result(realm, hook.get(),
                     "realms." + realm.name() + "." + closureName, reporter, args);
             switch (result) {
                 case RealmResult.NotMine notMine -> {

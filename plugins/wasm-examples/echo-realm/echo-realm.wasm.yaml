@@ -1,0 +1,42 @@
+# Manifest for the echo-realm example plugin. Install it next to echo-realm.wasm in the plugins directory.
+# INSECURE: echo-realm trusts unsigned tokens and a guessable password rule; it is a demonstration and test fixture.
+
+# ABI version the module speaks (plugins/wasm-abi/abi-v1.schema.json).
+abi: 1
+
+# Security realms the module implements.
+realms:
+  - name: echo                      # realm name
+    policy: exclusive               # the realm itself authenticates users (additive realms only add groups)
+    autoCreateUsers: true           # allow just-in-time users (results with jit: true) in realm plugin:echo
+    hooks: [bearer, authenticate]   # realm.bearer (tokens) and realm.authenticate (username and password)
+
+# REST executions the module implements, served at /api/plugins/execute/<name>.
+executions:
+  - name: echoMint                  # execution name
+    users: ['*']                    # users allowed to call it ('*' is any authenticated, non-anonymous user)
+    groups: []                      # groups allowed to call it
+    httpMethod: POST                # HTTP method it answers
+
+# What the host lets the module do on its behalf.
+capabilities:
+  httpGet:
+    hosts: [stub.wasm-it.test:8443] # the only host:port http_get effects may reach (HTTPS only)
+
+# Resource limits the host enforces on every call.
+limits:
+  memoryPages: 256                  # linear memory cap, in 64 KiB pages (16 MiB)
+  stepTimeoutMs: 2000               # deadline for one step, after which the module is interrupted
+  maxSteps: 4                       # steps allowed per call
+  maxStdinBytes: 1048576            # largest envelope written to the module
+  maxStdoutBytes: 1048576           # largest reply accepted from the module
+  maxStateBytes: 65536              # largest plugin state kept between calls
+  httpTimeoutMs: 5000               # timeout of one http_get effect
+  maxHttpBodyBytes: 262144          # largest http_get response body
+
+# Opaque value handed to the module verbatim as the envelope's config.
+config:
+  issuer: echo-it                   # the token issuer (iss) this realm claims
+  groups: [readers]                 # groups given to every authenticated user
+  fetch_url: https://stub.wasm-it.test:8443/allow  # fetched for fetch:<user> token subjects
+  mint_seconds: 300                 # lifetime of tokens minted by echoMint

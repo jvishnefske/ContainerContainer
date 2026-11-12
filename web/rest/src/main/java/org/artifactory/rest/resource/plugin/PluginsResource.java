@@ -41,6 +41,7 @@ import org.apache.http.HttpStatus;
 import org.artifactory.addon.AddonsManager;
 import org.artifactory.addon.HaAddon;
 import org.artifactory.addon.plugin.ResponseCtx;
+import org.artifactory.addon.plugin.groovy.HostedResponseCtx;
 import org.artifactory.addon.rest.RestAddon;
 import org.artifactory.aol.AolService;
 import org.artifactory.api.rest.constant.HaRestConstants;
@@ -303,6 +304,30 @@ public class PluginsResource {
         } else if (responseCtx.getInputStream() != null) {
             builder.entity(responseCtx.getInputStream());
         }
+        if (responseCtx instanceof HostedResponseCtx hosted) {
+            withHostedHeaders(builder, hosted.responseHeaders());
+        }
         return builder.build();
+    }
+
+    /**
+     * Sends the headers of a hosted (WASM) execution's response. The host already validated them; a
+     * {@code content-type} that is not a valid media type is dropped and the default {@code text/plain} stays.
+     * Groovy executions return a plain {@link ResponseCtx}, whose headers are not sent, as before.
+     */
+    private static void withHostedHeaders(Response.ResponseBuilder builder, Map<String, List<String>> headers) {
+        headers.forEach((name, values) -> {
+            if ("content-type".equalsIgnoreCase(name)) {
+                if (!values.isEmpty()) {
+                    try {
+                        builder.type(MediaType.valueOf(values.get(0)));
+                    } catch (IllegalArgumentException e) {
+                        log.debug("Ignoring invalid content type of a plugin execution: {}", e.getMessage());
+                    }
+                }
+            } else {
+                values.forEach(value -> builder.header(name, value));
+            }
+        });
     }
 }

@@ -11,6 +11,7 @@
 
 package org.artifactory.addon.plugin.groovy;
 
+import groovy.lang.Closure;
 import org.artifactory.addon.plugin.PluginAction;
 import org.artifactory.addon.plugin.ResponseCtx;
 import org.artifactory.addon.plugin.pkgtype.PluginPackageTypeRegistry;
@@ -44,9 +45,12 @@ import java.util.function.Supplier;
  * The registry and the snapshot are separate objects, so between the two updates a request may briefly see
  * new package types with old hooks.
  *
- * <p>Execution and realm names are unique across plugins: a plugin declaring a name an earlier one (by file name)
- * declared fails to load. Every script gets a {@code pluginDir} binding with the plugins directory. Executions run
- * in the {@link PluginCallScope.Kind#EXECUTION} scope.
+ * <p>Besides {@code .groovy} files, an optional {@link PluginLoader} contributes plugins of other kinds (WASM modules);
+ * their results join the same snapshot, so their realms and executions are listed, reloaded and enforced like Groovy
+ * ones. Plugin names are unique across kinds: a plugin whose name an earlier file (by file name) already took fails
+ * to load, and so does one whose execution or realm name an earlier plugin declared. Every script gets a
+ * {@code pluginDir} binding with the plugins directory. Executions, Groovy or hosted, run in the
+ * {@link PluginCallScope.Kind#EXECUTION} scope.
  */
 public final class GroovyPluginEngine {
 
@@ -58,6 +62,7 @@ public final class GroovyPluginEngine {
     private final PluginPackageTypeRegistry registry;
     private final Function<String, Map<String, Object>> bindingsFor;
     private final HookFailureReporter reporter;
+    private final PluginLoader otherPlugins;
     private final AtomicReference<PluginSnapshot> current = new AtomicReference<>(PluginSnapshot.empty());
 
     /**
@@ -70,6 +75,16 @@ public final class GroovyPluginEngine {
     public GroovyPluginEngine(Supplier<Path> pluginsDir, GroovyPluginCompiler compiler,
             PluginPackageTypeRegistry registry, Function<String, Map<String, Object>> bindingsFor,
             HookFailureReporter reporter) {
+        this(pluginsDir, compiler, registry, bindingsFor, reporter, PluginLoader.NONE);
+    }
+
+    /**
+     * @param otherPlugins loads the plugins that are not Groovy scripts, such as WASM modules, at every reload
+     */
+    public GroovyPluginEngine(Supplier<Path> pluginsDir, GroovyPluginCompiler compiler,
+            PluginPackageTypeRegistry registry, Function<String, Map<String, Object>> bindingsFor,
+            HookFailureReporter reporter, PluginLoader otherPlugins) {
+        this.otherPlugins = Objects.requireNonNull(otherPlugins, "otherPlugins");
         this.pluginsDir = Objects.requireNonNull(pluginsDir, "pluginsDir");
         this.compiler = Objects.requireNonNull(compiler, "compiler");
         this.registry = Objects.requireNonNull(registry, "registry");
@@ -93,8 +108,10 @@ public final class GroovyPluginEngine {
         for (PluginSource source : scan.sources()) {
             results.add(compiler.compile(source, withPluginDir(bindingsFor.apply(source.name()), dir)));
         }
+        results.addAll(otherPlugins.load(dir));
         results.sort((a, b) -> a.fileName().compareTo(b.fileName()));
-        List<PluginLoadResult> unique = rejectDuplicateRealms(rejectDuplicateExecutions(results));
+        List<PluginLoadResult> unique =
+                rejectDuplicateRealms(rejectDuplicateExecutions(rejectDuplicateNames(results)));
         List<PluginLoadResult> registered = register(unique, current.get());
         PluginSnapshot next = new PluginSnapshot(registered);
         current.set(next);
@@ -154,15 +171,16 @@ public final class GroovyPluginEngine {
     }
 
     /**
-     * Runs a named execution with a fresh {@link ResponseCtx} as delegate, so the body sets {@code status}
-     * and {@code message}. Never throws.
+     * Runs a named execution. A Groovy execution runs with a fresh {@link ResponseCtx} as delegate, so the body sets
+     * {@code status} and {@code message}; a hosted one ({@link ExecutionHook.Hosted}) answers a status, headers and
+     * body, returned as a {@link HostedResponseCtx}. Both are refused by the same rules first. Never throws.
      *
      * @param method the request's HTTP method, checked against the execution's declared one
      * @param params request parameters, passed as the closure's first argument
      * @param body   request body handle or {@code null}, passed as the second argument
      * @return the response: the execution's status (200 when unset) and message; 404/403 when refused;
      *         405 for the wrong HTTP method; the cancel status for a {@link CancelException}; 500 for any other
-     *         failure
+     *         failure, including a hosted execution that failed
      */
     public ResponseCtx execute(String executionName, String method, Map<String, ?> params, Object body,
             Caller caller) {
@@ -172,9 +190,38 @@ public final class GroovyPluginEngine {
             return refusal.orElseGet(() -> response(404, executionName));
         }
         PluginExecution execution = found.get();
+        return switch (execution.hook()) {
+            case ExecutionHook.Script script -> executeScript(execution, script.closure(), params, body);
+            case ExecutionHook.Hosted hosted -> executeHosted(execution, hosted.call(),
+                    new ExecutionHook.Request(executionName, method, params, body, caller));
+        };
+    }
+
+    private ResponseCtx executeHosted(PluginExecution execution, ExecutionHook.Call call,
+            ExecutionHook.Request request) {
+        HostedOutcome<ExecutionHook.Response> outcome;
+        try {
+            outcome = PluginCallScope.run(PluginCallScope.Kind.EXECUTION, () -> call.call(request));
+        } catch (RuntimeException e) {
+            outcome = new HostedOutcome.Failed<>(HookInvoker.describe(e));
+        }
+        return switch (outcome) {
+            case HostedOutcome.Answered<ExecutionHook.Response> answered -> new HostedResponseCtx(answered.value());
+            case HostedOutcome.Failed<ExecutionHook.Response> failed -> {
+                reporter.report(execution.pluginName(), "executions." + execution.name(),
+                        new IllegalStateException(failed.reason()));
+                yield response(500, "Plugin execution '" + execution.name() + "' of plugin '"
+                        + execution.pluginName() + "' failed");
+            }
+        };
+    }
+
+    private ResponseCtx executeScript(PluginExecution execution, Closure<?> closure,
+            Map<String, ?> params, Object body) {
+        String executionName = execution.name();
         ResponseCtx ctx = new ResponseCtx();
         HookOutcome outcome = PluginCallScope.run(PluginCallScope.Kind.EXECUTION,
-                () -> HookInvoker.invoke(execution.closure(), ctx, params, body));
+                () -> HookInvoker.invoke(closure, ctx, params, body));
         switch (outcome) {
             case HookOutcome.Completed completed -> {
                 if (ctx.getStatus() == ResponseCtx.UNSET_STATUS) {
@@ -205,6 +252,26 @@ public final class GroovyPluginEngine {
             result.putIfAbsent(PLUGIN_DIR_BINDING, dir);
         }
         return result;
+    }
+
+    /**
+     * Fails every plugin, loaded or not, whose plugin name an earlier file already took (for example
+     * {@code corp.wasm} after {@code corp.groovy}), so a plugin name identifies one file in status, in reports and
+     * in the package type registry. Pure.
+     */
+    static List<PluginLoadResult> rejectDuplicateNames(List<PluginLoadResult> results) {
+        Map<String, String> owners = new HashMap<>();
+        List<PluginLoadResult> checked = new ArrayList<>(results.size());
+        for (PluginLoadResult result : results) {
+            String owner = owners.putIfAbsent(result.name(), result.fileName());
+            if (owner == null) {
+                checked.add(result);
+            } else {
+                checked.add(new PluginLoadResult.Failed(result.name(), result.fileName(),
+                        "Plugin name '" + result.name() + "' is already taken by " + owner));
+            }
+        }
+        return checked;
     }
 
     /**

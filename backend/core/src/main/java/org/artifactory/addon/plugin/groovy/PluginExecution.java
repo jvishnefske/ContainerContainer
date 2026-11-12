@@ -26,7 +26,8 @@ import java.util.Set;
  * {@code POST /api/plugins/execute/{name}}.
  *
  * <p>When {@code users} and {@code groups} are both empty only administrators may run it; see
- * {@link ExecutionAuthorizer}.
+ * {@link ExecutionAuthorizer}. The body is an {@link ExecutionHook}: a closure for executions of {@code .groovy}
+ * plugins, a hosted call for executions a WASM plugin's manifest declares; the rules are the same for both.
  *
  * @param pluginName  name of the declaring plugin
  * @param name        execution name
@@ -35,7 +36,7 @@ import java.util.Set;
  * @param httpMethod  the only HTTP method the execution answers to ({@code POST} by default); other methods get 405
  * @param version     declared version, informational
  * @param description declared description, empty when not given
- * @param closure     the execution body, called with {@code (params, body)} and a {@code ResponseCtx} delegate
+ * @param hook        the execution body
  */
 public record PluginExecution(
         String pluginName,
@@ -45,7 +46,7 @@ public record PluginExecution(
         String httpMethod,
         String version,
         String description,
-        Closure<?> closure) {
+        ExecutionHook hook) {
 
     public PluginExecution {
         Objects.requireNonNull(pluginName, "pluginName");
@@ -55,7 +56,7 @@ public record PluginExecution(
         Objects.requireNonNull(httpMethod, "httpMethod");
         Objects.requireNonNull(version, "version");
         Objects.requireNonNull(description, "description");
-        Objects.requireNonNull(closure, "closure");
+        Objects.requireNonNull(hook, "hook");
     }
 
     /**
@@ -71,7 +72,7 @@ public record PluginExecution(
                 stringOr(opts.get("httpMethod"), "POST"),
                 stringOr(opts.get("version"), "undefined"),
                 stringOr(opts.get("description"), ""),
-                closure);
+                new ExecutionHook.Script(closure));
     }
 
     /** @return the papi {@link PluginInfo} view used by {@code GET /api/plugins} */

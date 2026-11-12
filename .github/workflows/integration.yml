@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        script: [run-it, run-oci-it]
+        script: [run-it, run-oci-it, run-wasm-it]
     steps:
       - uses: actions/checkout@v4
       - name: Free disk space for the 3 GB Artifactory images

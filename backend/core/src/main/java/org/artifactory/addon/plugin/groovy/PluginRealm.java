@@ -42,21 +42,24 @@ import java.util.regex.Pattern;
  * <p>Users a realm creates just in time live in the Artifactory realm {@link #userRealm()},
  * {@code plugin:<name>}.
  *
+ * <p>The hooks are {@link RealmHook}s: Groovy closures for realms of {@code .groovy} plugins, hosted calls for realms
+ * a WASM plugin's manifest declares. Both are invoked by {@link RealmInvoker} and enforced identically.
+ *
  * @param pluginName      name of the declaring plugin
  * @param name            realm name, {@code [A-Za-z0-9_-]+}, unique across loaded plugins
  * @param policy          whether the realm authenticates or only adds groups
  * @param autoCreateUsers whether a result may ask for a just-in-time user ({@code jit: true}); default false
- * @param authenticate    closure {@code (username, credentials) -> RealmResult}, optional
- * @param bearer          closure {@code (token) -> RealmResult}, optional
- * @param userExists      closure {@code (username) -> boolean}, optional
+ * @param authenticate    hook {@code (username, credentials) -> RealmResult}, optional
+ * @param bearer          hook {@code (token) -> RealmResult}, optional
+ * @param userExists      closure {@code (username) -> boolean}, optional (Groovy realms only)
  */
 public record PluginRealm(
         String pluginName,
         String name,
         Policy policy,
         boolean autoCreateUsers,
-        Optional<Closure<?>> authenticate,
-        Optional<Closure<?>> bearer,
+        Optional<RealmHook> authenticate,
+        Optional<RealmHook> bearer,
         Optional<Closure<?>> userExists) {
 
     /** Prefix of the Artifactory realm of users a plugin realm creates. */
@@ -126,7 +129,7 @@ public record PluginRealm(
             throw new IllegalArgumentException("autoCreateUsers of realm '" + name + "' must be true or false");
         }
         return new PluginRealm(pluginName, name, Policy.parse(opts.get("realmPolicy")), Boolean.TRUE.equals(auto),
-                authenticate, bearer, userExists);
+                authenticate.map(RealmHook.Script::new), bearer.map(RealmHook.Script::new), userExists);
     }
 
     /** @return the Artifactory realm of users this realm creates, {@code plugin:<name>} */

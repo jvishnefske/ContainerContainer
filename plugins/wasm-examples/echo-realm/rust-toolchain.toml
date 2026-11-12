@@ -1,0 +1,5 @@
+# Pinned to the toolchain shipped in the build image (see build.sh), so rustup never downloads another one.
+[toolchain]
+channel = "1.91.1"
+targets = ["wasm32-wasip1"]
+profile = "minimal"

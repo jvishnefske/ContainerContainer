@@ -13,6 +13,10 @@ package org.artifactory.addon.plugin.groovy;
 
 import groovy.lang.Closure;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 /**
  * Runs realm closures and turns whatever happens into a {@link RealmResult}, failing closed.
  *
@@ -21,10 +25,51 @@ import groovy.lang.Closure;
  * reported with the plugin and realm name, so a broken realm can never authenticate anyone (P1). Closures run in
  * the {@link PluginCallScope.Kind#REALM} scope with no delegate: names resolve against the script, whose binding
  * holds {@code realm}, {@code security}, {@code log} and the other variables.
+ *
+ * <p>Hosted hooks ({@link RealmHook.Hosted}, for example a WASM module's) run in the same scope. Their
+ * {@link HostedOutcome.Failed} answer, and anything they throw despite their contract, also gives
+ * {@link RealmResult.NotMine} and is reported the same way.
  */
 public final class RealmInvoker {
 
     private RealmInvoker() {
+    }
+
+    /**
+     * Calls a realm's {@code authenticate} or {@code bearer} hook, whichever kind it is.
+     *
+     * @param what which hook, for example {@code realms.corp.bearer}, used in reports
+     * @param args the credentials: user name and password, or the token
+     */
+    public static RealmResult result(PluginRealm realm, RealmHook hook, String what, HookFailureReporter reporter,
+            Object... args) {
+        return switch (hook) {
+            case RealmHook.Script script -> result(realm, script.closure(), what, reporter, args);
+            case RealmHook.Hosted hosted -> hosted(realm, hosted.call(), what, reporter, args);
+        };
+    }
+
+    private static RealmResult hosted(PluginRealm realm, RealmHook.Call call, String what,
+            HookFailureReporter reporter, Object... args) {
+        List<String> credentials = new ArrayList<>(args.length);
+        for (Object arg : args) {
+            credentials.add(arg == null ? null : String.valueOf(arg));
+        }
+        HostedOutcome<RealmResult> outcome;
+        try {
+            outcome = PluginCallScope.run(PluginCallScope.Kind.REALM,
+                    () -> call.call(Collections.unmodifiableList(credentials)));
+        } catch (RuntimeException e) {
+            reporter.report(realm.pluginName(), what, e);
+            return new RealmResult.NotMine();
+        }
+        return switch (outcome) {
+            case HostedOutcome.Answered<RealmResult> answered -> answered.value();
+            case HostedOutcome.Failed<RealmResult> failed -> {
+                reporter.report(realm.pluginName(), what, new IllegalStateException(failed.reason()));
+                yield new RealmResult.NotMine();
+            }
+        };
     }
 
     /**

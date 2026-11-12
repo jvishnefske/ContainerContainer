@@ -37,6 +37,28 @@
             <artifactId>groovy</artifactId>
             <version>4.0.28</version>
         </dependency>
+        <!-- WASM plugin runtime (org.artifactory.addon.plugin.wasm): Endive interpreter and WASI preview 1,
+             Apache-2.0. The optional compiler artifact (and its ASM dependency) is deliberately not used. -->
+        <dependency>
+            <groupId>run.endive</groupId>
+            <artifactId>wasm</artifactId>
+            <version>1.2.0</version>
+        </dependency>
+        <dependency>
+            <groupId>run.endive</groupId>
+            <artifactId>runtime</artifactId>
+            <version>1.2.0</version>
+        </dependency>
+        <dependency>
+            <groupId>run.endive</groupId>
+            <artifactId>wasi</artifactId>
+            <version>1.2.0</version>
+        </dependency>
+        <dependency>
+            <groupId>run.endive</groupId>
+            <artifactId>log</artifactId>
+            <version>1.2.0</version>
+        </dependency>
         <!-- JFBus -->
         <dependency>
             <groupId>org.jfrog.eventing</groupId>
@@ -584,6 +606,43 @@
 
     <build>
         <plugins>
+            <!-- W7: the WASM plugin runtime stays pure Java. Only the listed Endive artifacts (interpreter, WASI,
+                 parser, logging, and the bytecode compiler should a manifest ever opt in) may enter the build;
+                 Endive's native backends (the Cranelift-based Redline and anything else) and the JNR/JFFI native
+                 bridges are banned outright. Endive 1.2.0's artifacts have no transitive dependencies. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>wasm-runtime-is-pure-java</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <excludes>
+                                        <exclude>run.endive:*</exclude>
+                                        <exclude>com.github.jnr:*</exclude>
+                                        <exclude>org.lwjgl:*</exclude>
+                                    </excludes>
+                                    <includes>
+                                        <include>run.endive:wasm:1.2.0</include>
+                                        <include>run.endive:runtime:1.2.0</include>
+                                        <include>run.endive:wasi:1.2.0</include>
+                                        <include>run.endive:log:1.2.0</include>
+                                        <include>run.endive:compiler:1.2.0</include>
+                                    </includes>
+                                    <message>The WASM runtime must stay pure Java (design.md W7): only the
+                                        interpreter-side Endive artifacts are allowed, no native backend.</message>
+                                </bannedDependencies>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>

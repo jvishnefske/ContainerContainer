@@ -44,7 +44,7 @@ class RealmGrantPolicyTest {
 
     private static PluginRealm realm(boolean autoCreate) {
         return new PluginRealm("p", "corp", PluginRealm.Policy.EXCLUSIVE, autoCreate, Optional.empty(),
-                Optional.of(NOOP), Optional.empty());
+                Optional.of(new RealmHook.Script(NOOP)), Optional.empty());
     }
 
     private static RealmResult.Authenticated as(String user, boolean jit, String... groups) {

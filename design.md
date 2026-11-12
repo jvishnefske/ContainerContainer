@@ -640,14 +640,30 @@ runtime. Unlike a Groovy plugin, which has full JVM access, a WASM module can re
 here, within limits the administrator sets, so modules can come from parties who are not trusted with the JVM. WASM
 hooks feed the same Java enforcement as Groovy ones: realm results go through P1-P6, executions through G4 and G7.
 
-- [ ] W1. A plugin is `<name>.wasm` plus a manifest `<name>.wasm.yaml` in the plugins directory, loaded at startup and
+- [x] W1. A plugin is `<name>.wasm` plus a manifest `<name>.wasm.yaml` in the plugins directory, loaded at startup and
       by `POST /api/plugins/reload` together with Groovy plugins and reported in plugin status. The manifest declares
       the hooks the module implements (realms with name and policy, executions with users, groups and method), its
       capabilities (allowed HTTPS hosts), its limits (linear memory pages, per-call deadline, maximum request and
       response sizes) and an opaque `config` value handed to the module as JSON. A missing or invalid manifest, a
       module that fails validation or instantiation, or a module whose ABI version differs fails that plugin's load
       with a clear status and registers nothing.
-- [ ] W2. ABI version 1 is a step protocol over WASI preview 1 standard streams, so a guest needs no exported
+      As built (`org.artifactory.addon.plugin.wasm`): `WasmPluginLoader` is a `PluginLoader` the Groovy engine calls
+      on every reload, so WASM plugins share the snapshot, status, listing and reload. Manifest schema
+      (`ManifestParser`; unknown keys fail the load): `abi: 1`; `realms: [{name, policy, autoCreateUsers, hooks}]`
+      (`policy` must be `exclusive`, since ABI v1 cannot call `realm.authenticate` without a password as additive
+      realms need; `hooks` is a non-empty subset of `authenticate`, `bearer`, default both); `executions: [{name,
+      users, groups, httpMethod}]`; `capabilities: {httpGet: {hosts: [host[:port]]}}`; `limits` (`PluginLimits`,
+      default [bounds]: memoryPages 256 [1-1024], stepTimeoutMs 2000 [10-30000], maxSteps 4 [1-16], maxStdinBytes
+      and maxStdoutBytes 1 MiB [1 KiB-16 MiB], maxStateBytes 64 KiB [0-1 MiB], httpTimeoutMs 5000 [100-30000],
+      maxHttpBodyBytes 256 KiB [0-4 MiB]); `config`. Plugin names are unique across Groovy and WASM files.
+      Evidence (backend/core): `ManifestParserTest` (all 5), `WasmPluginLoaderTest` (all 4, among them
+      `#modulesThatBreakTheRulesFailTheLoad`, `#missingOrInvalidManifestsFailTheLoad`),
+      `WasmPluginEnforcementTest#wasmPluginsAreListedAndReportedLikeGroovyOnes`,
+      `#pluginAndRealmNamesStayUniqueAcrossGroovyAndWasm`,
+      `#removingThePluginRevokesItsAuthenticationsAndRefusesItsTokens`; live (`docker/it/run-wasm-it.sh`, 13 passed 0 failed on 2026-11-12)
+      `W1.wasm-plugin-loaded-and-listed`, `W1.plugin-removed-and-reloaded`,
+      `W1.after-removal-realm-tokens-are-refused-and-passwords-work`.
+- [x] W2. ABI version 1 is a step protocol over WASI preview 1 standard streams, so a guest needs no exported
       allocator, no raw pointers and no custom imports (a Rust guest can be `#![forbid(unsafe_code)]`). The module is a
       WASI command. For each step the host instantiates it, writes one JSON envelope to stdin and runs `_start`: `abi`
       (1), `hook` (`realm.authenticate`, `realm.bearer` or `execution`), `request`, the manifest `config`, the plugin's
@@ -657,28 +673,84 @@ hooks feed the same Java enforcement as Groovy ones: realm results go through P1
       lines go to the plugin log. Steps per call are capped (default 4). The exact shapes are
       `plugins/wasm-abi/abi-v1.schema.json`. Realm results map one to one onto `authenticated` / `notMine` /
       `rejected`; execution results carry status, headers and body.
-- [ ] W3. Effects are the module's only way to affect anything outside its own memory, and the host performs each one
+      As built: `AbiCodec` (strict: one JSON value, no duplicate keys, depth at most 64, at most 8 effects per reply),
+      `StepRules` (the pure decisions), `StepLoop` (the loop over a `Runner` and a `Performer`). Steps after the first
+      see the latest state a step of the same call returned; it is committed only when the call finishes. Execution
+      requests carry the request headers without `authorization`, `cookie` and other credential headers. Response
+      headers are validated (tokens, no control characters, no framing, cookie or challenge headers) and sent by
+      `PluginsResource` for hosted executions only (`HostedResponseCtx`). Evidence: `AbiCodecTest` (all 5),
+      `StepLoopTest#effectsRoundTripIntoTheNextStepAndTheLatestStateIsCommitted`, `#theStepCapEndsTheCall`,
+      `EndiveRuntimeTest#everyStepGetsAFreshInstanceAndStdinIsTheEnvelope`; web/rest:
+      `HostedExecutionResourceTest#aHostedExecutionSendsItsStatusHeadersAndBody`; live
+      `W2.bearer-login-runs-the-execution-as-the-realm-user`.
+- [x] W3. Effects are the module's only way to affect anything outside its own memory, and the host performs each one
       only within the manifest's capabilities: `http_get` (HTTPS only, to hosts the manifest allows, no redirects,
       timeout, response-size cap) and, in execution calls only, `mint_access_token` (the same rules as P4). Plugin
       `state` is an opaque JSON value with a size cap, kept per plugin by the host and replaced whole when a reply
       carries a new one, so a module can cache (for example signing keys) across calls without shared mutable memory.
       WASI is offered with no preopened directories, no environment, no arguments, a wall clock, and random from the
       JVM's secure source. Any import outside WASI preview 1 fails the load. Cryptography runs inside the module.
+      As built: `EffectPolicy` (pure: an absolute `https` URI whose host and port, 443 unless the entry names one,
+      equal an allowlist entry, without user info or fragment, without client-owned request headers; mint only in
+      `execution` calls; a denied effect fails the call), `HostEffects` (JDK `HttpClient`, redirects never, no proxy,
+      one deadline over connect, headers and body, the exchange cancelled past the body cap; mint through
+      `PluginSecurity.createAccessToken(expires_in, not_after)` in the caller's security context), `PluginState`
+      (one `AtomicReference` per plugin, reset on reload), `ModuleRules` and `EndiveRuntime` (WASI options).
+      Evidence: `EffectPolicyTest` (all 4), `ModuleRulesTest` (all 5),
+      `StepLoopTest#aDisallowedEffectFailsTheCallAndNothingIsPerformed`, `#stateIsCommittedOnlyBySuccessfulCalls`,
+      `WasmPluginEnforcementTest#anHttpGetEffectRoundTripsThroughTheHost`,
+      `#executionsAreAuthorizedLikeGroovyOnesAndMintForTheCaller`,
+      `#mintedTokensNeverOutliveTheRealmCredentialOrNotAfter`, `#stateSurvivesAcrossCallsAndCountsOnlyCompletedOnes`;
+      live `W3.mint-effect-gives-a-user-scoped-token-within-the-requested-lifetime`, `W3.minted-token-works`,
+      `W3.http-get-effect-reaches-the-allowlisted-https-host`.
 - [ ] W4. Sandboxing is enforced by the host, not trusted to the module: Endive's interpreter by default (the
       build-time or runtime compiler only when the manifest opts in); linear memory capped by the manifest; each step
       runs on a bounded worker pool with a deadline, after which it is interrupted. A trap, non-zero exit, timeout,
       out-of-memory, oversized or malformed reply, too many steps, or a disallowed effect fails closed: a realm call
       counts as "not mine" and is reported, and an execution answers 500, and no `state` from a failed call is kept.
       Every step uses a fresh instance, so nothing survives in module memory between steps or calls.
-- [ ] W7. WASM runs entirely inside the JRE: only Endive's pure-Java execution (the interpreter, and, when a
-      manifest opts in, its compilers to JVM bytecode). No JNI, no Panama FFM or other native code, and no native
-      backend (Endive's experimental Cranelift-based Redline is excluded). A build check bans `run.endive` native
-      backend artifacts and any dependency that ships native libraries for the WASM path, and a test confirms a
-      module executes with native access disabled (`--illegal-native-access=deny` and no
-      `--enable-native-access` for the WASM classes).
-- [ ] W5. A public example module (Rust, `wasm32-wasip1`, `#![forbid(unsafe_code)]`) under `plugins/wasm-examples/`
+      Status: open only for the compiler opt-in, which is not built: the manifest has no such key (an unknown key
+      fails the load) and the `compiler` artifact is not a dependency, so every module runs on the interpreter.
+      Everything else is shown: `EndiveRuntimeTest#trapNonZeroExitAndOversizedStdoutFail`,
+      `#anInfiniteLoopIsInterruptedAtTheDeadlineAndTheWorkerIsFreedAgain`, `#aFullPoolRefusesInsteadOfWaiting`,
+      `#memoryCannotGrowPastTheCap`, `StepLoopTest#malformedRepliesAndFailedStepsFailClosedWithoutState`,
+      `#oversizedOutputStateAndEnvelopeFail`, `#theStepCapEndsTheCall`,
+      `WasmPluginEnforcementTest#trapsAndLoopsFailClosedAsNotMineAndAreReported`,
+      `#aFailingExecutionAnswers500AndIsReported`; live
+      `W4.looping-and-trapping-modules-fail-closed-and-are-reported`, `W4.plugin-keeps-working-after-a-killed-step`.
+      WASM realm results go through the unchanged P1-P6 code (`RealmHook.Hosted` hooks run through `RealmInvoker`
+      and `PluginRealmAuthenticator`): `WasmPluginEnforcementTest#aWasmRealmCanNeverGrantAdminOrTakeOverAnotherRealmsUser`,
+      `#aBearerTokenCreatesAJustInTimeUserInThePluginRealmWithOnlyExistingNonAdminGroups`; live
+      `P3.wasm-realm-cannot-grant-admin-and-rejections-are-final`,
+      `P3.jit-user-in-plugin-realm-with-only-existing-non-admin-groups`.
+- [x] W5. A public example module (Rust, `wasm32-wasip1`, `#![forbid(unsafe_code)]`) under `plugins/wasm-examples/`
       exercises every hook, both effects and state. The Java tests run it from a committed build; CI rebuilds it from source and checks it matches.
-- [ ] W6. With no WASM plugins, behavior and test suites are unchanged, and Groovy plugins work as before.
+      As built: `plugins/wasm-examples/echo-realm` (serde, serde_json, base64, locked by `Cargo.lock`; toolchain
+      1.91.1), built by `build.sh` in `rust:1.91.1` pinned by digest, with remapped source and Cargo paths, no debug
+      info, stripped symbols, one codegen unit and LTO. Fixture `backend/core/src/test/resources/wasm/echo-realm.wasm`,
+      sha256 `298de0655b108cf8074d73ed88af248e8398abba39c34f02d094a01c0cf56ad5`: three clean builds gave the same
+      hash, and the CI job `wasm-example` runs `build.sh --check`, which fails unless the rebuild is bit-identical.
+      Evidence: `WasmPluginEnforcementTest#theCommittedModuleMatchesItsRecordedHash` and the tests above that run it.
+- [x] W6. With no WASM plugins, behavior and test suites are unchanged, and Groovy plugins work as before.
+      Evidence: full suites on 2026-11-12 with the CI excludes (`.github/surefire-excludes.txt`): backend/core
+      10670 run 0 failed (9 skipped; 10611 before plus the 59 new WASM tests), web/rest 1222 run 0 failed (1220 plus
+      2), web/rest-ui 3067 run 0 failed (3 skipped; the excluded EmptyTrashServiceLongRunTest accounts for the rest),
+      web/application 538 run 0 failed; `HostedExecutionResourceTest#aFailedHostedExecutionIs500AndGroovyHeadersStayUnsent`
+      (a Groovy execution's `headers` are still not sent); live `W6.passwords-keep-working-with-the-wasm-realm-loaded`.
+      The one changed existing test is `RealmGrantPolicyTest`, whose realm fixture wraps its closure in
+      `RealmHook.Script` now that realm hooks are `RealmHook` values.
+- [x] W7. WASM runs entirely inside the JRE: only Endive's pure-Java execution (the interpreter, and, when a manifest
+      opts in, its compilers to JVM bytecode). No JNI, no Panama FFM or other native code, and no native backend
+      (Endive's experimental Cranelift-based Redline is excluded). A build check bans `run.endive` native backend
+      artifacts and any dependency that ships native libraries for the WASM path, and a test confirms a module
+      executes with native access disabled (`--illegal-native-access=deny` and no `--enable-native-access` for the
+      WASM classes).
+      As built: the enforcer execution `wasm-runtime-is-pure-java` in `backend/core/pom.xml` bans every `run.endive`
+      artifact except `wasm`, `runtime`, `wasi`, `log` and `compiler` at 1.2.0, and all of `com.github.jnr` and
+      `org.lwjgl`. `mvn dependency:tree` shows the four Endive artifacts used with no transitive dependencies, and the
+      rule was seen to fail the build when an Endive artifact outside the list entered it. Evidence:
+      `NativeAccessDeniedTest#theExampleModuleRunsWithNativeAccessDenied` (a child JVM started with
+      `--illegal-native-access=deny` first sees `System.loadLibrary` refused, then runs the example module).
 
 ## Out of scope for the first iteration
 
@@ -686,4 +758,4 @@ hooks feed the same Java enforcement as Groovy ones: realm results go through P1
   exists and can come later).
 - UI listing of plugin types. The Angular frontend is not in the OSS sources.
 - Jobs, staging and promotion DSL blocks (realms: see Plugin realms).
-- WASM plugins.
+- Opt-in compilation of WASM modules to JVM bytecode (W4).

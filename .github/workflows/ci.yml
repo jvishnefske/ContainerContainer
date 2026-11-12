@@ -76,3 +76,13 @@ jobs:
           name: ${{ steps.report.outputs.name }}
           path: ${{ matrix.module }}/target/surefire-reports
           retention-days: 7
+
+  # Rebuild the echo-realm example WASM plugin from source in its pinned Rust image, run its unit tests, and fail
+  # unless the module is bit-identical to the committed test fixture (backend/core/src/test/resources/wasm).
+  wasm-example:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rebuild echo-realm and compare it with the committed fixture
+        run: bash plugins/wasm-examples/echo-realm/build.sh --check

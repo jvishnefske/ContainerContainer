@@ -45,5 +45,13 @@
  * {@link org.artifactory.addon.plugin.groovy.RealmGrantPolicy}. The {@code security} binding
  * ({@link org.artifactory.addon.plugin.groovy.PluginSecurity}) adds user lookup and token minting for realm and
  * execution code.
+ *
+ * <p>Realm hooks and executions are {@link org.artifactory.addon.plugin.groovy.RealmHook} and
+ * {@link org.artifactory.addon.plugin.groovy.ExecutionHook} values: Groovy closures, or hosted calls that a
+ * {@link org.artifactory.addon.plugin.groovy.PluginLoader} contributes (the WASM plugins of
+ * {@code org.artifactory.addon.plugin.wasm}). Hosted hooks answer a
+ * {@link org.artifactory.addon.plugin.groovy.HostedOutcome} and are invoked, authorized and enforced by the same code
+ * as closures; a hosted execution's headers and body come back as a
+ * {@link org.artifactory.addon.plugin.groovy.HostedResponseCtx}.
  */
 package org.artifactory.addon.plugin.groovy;

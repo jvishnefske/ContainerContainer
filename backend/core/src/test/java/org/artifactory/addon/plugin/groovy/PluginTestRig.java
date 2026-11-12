@@ -46,6 +46,11 @@ final class PluginTestRig {
     final GroovyPluginsAddon addon;
 
     PluginTestRig(Path dir) {
+        this(dir, PluginLoader.NONE);
+    }
+
+    /** A rig whose engine also loads plugins through {@code otherPlugins}, such as WASM modules. */
+    PluginTestRig(Path dir, PluginLoader otherPlugins) {
         this.dir = dir;
         HookFailureReporter reporter = (plugin, what, error) -> reports.add(new Report(plugin, what, error));
         this.engine = new GroovyPluginEngine(() -> dir,
@@ -58,7 +63,7 @@ final class PluginTestRig {
                     extraBindings.forEach(bindings::putIfAbsent);
                     return bindings;
                 },
-                reporter);
+                reporter, otherPlugins);
         Executor executor = asyncTasks::add;
         this.addon = new GroovyPluginsAddon(engine, () -> caller, executor);
     }
