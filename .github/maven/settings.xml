@@ -1,0 +1,13 @@
+<settings>
+  <profiles><profile><id>jfrog</id>
+    <repositories>
+      <repository><id>central</id><url>https://repo.maven.apache.org/maven2</url></repository>
+      <repository><id>jfrog-jars</id><url>https://releases.jfrog.io/artifactory/jfrog-jars</url></repository>
+    </repositories>
+    <pluginRepositories>
+      <pluginRepository><id>central</id><url>https://repo.maven.apache.org/maven2</url></pluginRepository>
+      <pluginRepository><id>jfrog-jars</id><url>https://releases.jfrog.io/artifactory/jfrog-jars</url></pluginRepository>
+    </pluginRepositories>
+  </profile></profiles>
+  <activeProfiles><activeProfile>jfrog</activeProfile></activeProfiles>
+</settings>

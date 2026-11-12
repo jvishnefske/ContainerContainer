@@ -1,0 +1,56 @@
+# Live integration tests: build the overlay image (stock artifactory-oss 7.161.26 plus the fork's jars) and run
+# the scripts in docker/it against throwaway containers bound to 127.0.0.1 on the runner. Each script removes its
+# own containers, volumes and networks on exit; container logs are kept as artifacts.
+name: integration
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MAVEN_ARGS: -B -s .github/maven/settings.xml --no-transfer-progress
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        script: [run-it, run-oci-it, run-oidc-it]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space for the 3 GB Artifactory images
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af >/dev/null
+          df -h /
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - name: Build the fork's jars
+        run: mvn $MAVEN_ARGS -T 1C -DskipTests install
+      - name: ${{ matrix.script }}
+        env:
+          LOG_DIR: ${{ runner.temp }}/logs
+          REMOVE_TOOLS_IMAGE: '1'
+        run: bash docker/it/${{ matrix.script }}.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs-${{ matrix.script }}
+          path: ${{ runner.temp }}/logs
+          if-no-files-found: ignore
+          retention-days: 7
