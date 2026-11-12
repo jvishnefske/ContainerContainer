@@ -31,5 +31,9 @@
  * and storage code reach them through {@code PluginsAddon.execPluginActions}. A hook that throws is
  * reported with its plugin name and otherwise ignored, except for {@code CancelException}, which is the
  * explicit way for a hook to fail the operation (see {@link org.artifactory.addon.plugin.groovy.HookOutcome}).
+ *
+ * <p>{@code packageType} blocks are built by {@link org.artifactory.addon.plugin.groovy.PackageTypeDelegate},
+ * whose {@code api} keyword adapts a closure to the HTTP API contract; the closure's return value is converted by
+ * {@link org.artifactory.addon.plugin.groovy.ApiResponseConversion} and the adapter fails closed with a 500.
  */
 package org.artifactory.addon.plugin.groovy;

@@ -27,8 +27,8 @@ import java.util.Objects;
  * <p>Each plugin gets its own {@link GroovyClassLoader}, child of the loader of this class, so scripts with
  * clashing class names cannot interfere and the classes of a replaced generation become collectable once
  * its closures are no longer referenced. Scripts extend {@link PluginScript} and get default imports for
- * {@code RepoPath}, {@code RepoPathFactory}, {@code ResponseCtx}, {@code CancelException} and
- * {@code UploadDecision}.
+ * {@code RepoPath}, {@code RepoPathFactory}, {@code ResponseCtx}, {@code CancelException},
+ * {@code UploadDecision}, {@code PluginApiRequest} and {@code PluginApiResponse}.
  */
 public final class GroovyPluginCompiler {
 
@@ -91,7 +91,9 @@ public final class GroovyPluginCompiler {
                 "org.artifactory.repo.RepoPathFactory",
                 "org.artifactory.addon.plugin.ResponseCtx",
                 "org.artifactory.exception.CancelException",
-                "org.artifactory.addon.plugin.pkgtype.UploadDecision");
+                "org.artifactory.addon.plugin.pkgtype.UploadDecision",
+                "org.artifactory.addon.plugin.pkgtype.PluginApiRequest",
+                "org.artifactory.addon.plugin.pkgtype.PluginApiResponse");
         config.addCompilationCustomizers(imports);
         return config;
     }

@@ -9,10 +9,13 @@
 
 /**
  * Request-side implementation of plugin package types: the registry, request-time type lookup, the plugin boundary
- * that turns handler outcomes into values, upload routing, the asynchronous index hook and save-time validation.
+ * that turns handler outcomes into values, upload routing, the asynchronous index hook, save-time validation, and
+ * the gate, service and Basic authentication adapter of the HTTP API.
  *
  * <p>Decisions are pure static functions ({@code PluginTypeResolution.resolve}, {@code PluginTypeHandlers.route},
- * {@code PluginPackageTypeRepoConfigValidator.check}, {@code PluginPackageTypeRegistryImpl.plan}); the Spring beans
- * here and the edits in {@code DownloadServiceImpl} and {@code UploadServiceImpl} are the thin shell around them.
+ * {@code PluginPackageTypeRepoConfigValidator.check}, {@code PluginPackageTypeRegistryImpl.plan},
+ * {@code PluginApiGate.decide}, {@code PluginApiGate.ping}, {@code PluginApiAuthenticationAdapter.acceptsBasic});
+ * the Spring beans here, the edits in {@code DownloadServiceImpl} and {@code UploadServiceImpl}, and the REST
+ * resources of the HTTP API are the thin shell around them.
  */
 package org.artifactory.addon.plugin.pkgtype.impl;
