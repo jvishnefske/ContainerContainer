@@ -647,27 +647,31 @@ hooks feed the same Java enforcement as Groovy ones: realm results go through P1
       response sizes) and an opaque `config` value handed to the module as JSON. A missing or invalid manifest, a
       module that fails validation or instantiation, or a module whose ABI version differs fails that plugin's load
       with a clear status and registers nothing.
-- [ ] W2. ABI version 1: the module exports `cc_abi_version() -> i32` (returns 1), `cc_alloc(len) -> ptr`,
-      `cc_free(ptr, len)`, and one export per declared hook: `cc_realm_authenticate`, `cc_realm_bearer`,
-      `cc_execution`. Each hook takes `(ptr, len)` of a UTF-8 JSON request and returns an `i64` packing `(ptr << 32) |
-      len` of a UTF-8 JSON response that the host reads and then frees. Realm responses map one to one onto
-      `authenticated` / `notMine` / `rejected`; execution responses carry status, headers and body.
-- [ ] W3. Host functions, module `cc`, are the module's only way out: `log(level, ptr, len)`; `now_seconds()`;
-      `http_get(req) -> resp` for HTTPS GETs to hosts the manifest allows, without redirects, with a timeout and a
-      response-size cap; `crypto_verify(req) -> result` for RS256, RS384, RS512, PS256 and ES256 signatures over
-      caller-supplied bytes with a JWK key; `kv_get` / `kv_put` / `kv_delete` on a small per-plugin in-memory store
-      with entry and total size caps and expiry, so a module can cache across calls and instances; and, in execution
-      calls only, `create_access_token(req)` with the same rules as P4. WASI preview 1 is offered with no preopened
-      directories, no environment, no arguments, stdout and stderr routed to the plugin log, and random from the JVM's
-      secure source. Any other import fails the load.
-- [ ] W4. Sandboxing is enforced by the host, not trusted to the module: Endive's interpreter by default; linear memory
-      capped by the manifest; each call runs on a bounded worker pool with a deadline, after which the call is
-      interrupted. A trap, timeout, out-of-memory, oversized or malformed response, or ABI violation fails closed: a
-      realm call counts as "not mine" and is reported, and an execution answers 500. Instances are pooled per plugin,
-      one call at a time each, and are discarded after any failure, so a failed call never leaves state for the next
-      one.
-- [ ] W5. A public example module (Rust, `wasm32-wasip1`) under `plugins/wasm-examples/` exercises every hook and host
-      function. The Java tests run it from a committed build; CI rebuilds it from source and checks it matches.
+- [ ] W2. ABI version 1 is a step protocol over WASI preview 1 standard streams, so a guest needs no exported
+      allocator, no raw pointers and no custom imports (a Rust guest can be `#![forbid(unsafe_code)]`). The module is a
+      WASI command. For each step the host instantiates it, writes one JSON envelope to stdin and runs `_start`: `abi`
+      (1), `hook` (`realm.authenticate`, `realm.bearer` or `execution`), `request`, the manifest `config`, the plugin's
+      `state`, `now` (epoch seconds), and `effects` (results of effects the previous step asked for, empty on the first
+      step). The module writes one JSON reply to stdout: either `{"result": ...}` ending the call, or `{"effects":
+      [...]}` asking the host to perform effects and run another step; either may carry a replacement `state`. Stderr
+      lines go to the plugin log. Steps per call are capped (default 4). The exact shapes are
+      `plugins/wasm-abi/abi-v1.schema.json`. Realm results map one to one onto `authenticated` / `notMine` /
+      `rejected`; execution results carry status, headers and body.
+- [ ] W3. Effects are the module's only way to affect anything outside its own memory, and the host performs each one
+      only within the manifest's capabilities: `http_get` (HTTPS only, to hosts the manifest allows, no redirects,
+      timeout, response-size cap) and, in execution calls only, `mint_access_token` (the same rules as P4). Plugin
+      `state` is an opaque JSON value with a size cap, kept per plugin by the host and replaced whole when a reply
+      carries a new one, so a module can cache (for example signing keys) across calls without shared mutable memory.
+      WASI is offered with no preopened directories, no environment, no arguments, a wall clock, and random from the
+      JVM's secure source. Any import outside WASI preview 1 fails the load. Cryptography runs inside the module.
+- [ ] W4. Sandboxing is enforced by the host, not trusted to the module: Endive's interpreter by default (the
+      build-time or runtime compiler only when the manifest opts in); linear memory capped by the manifest; each step
+      runs on a bounded worker pool with a deadline, after which it is interrupted. A trap, non-zero exit, timeout,
+      out-of-memory, oversized or malformed reply, too many steps, or a disallowed effect fails closed: a realm call
+      counts as "not mine" and is reported, and an execution answers 500, and no `state` from a failed call is kept.
+      Every step uses a fresh instance, so nothing survives in module memory between steps or calls.
+- [ ] W5. A public example module (Rust, `wasm32-wasip1`, `#![forbid(unsafe_code)]`) under `plugins/wasm-examples/`
+      exercises every hook, both effects and state. The Java tests run it from a committed build; CI rebuilds it from source and checks it matches.
 - [ ] W6. With no WASM plugins, behavior and test suites are unchanged, and Groovy plugins work as before.
 
 ## Out of scope for the first iteration

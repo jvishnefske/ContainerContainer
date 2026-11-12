@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jvishnefske/ContainerContainer/plugins/wasm-abi/abi-v1.schema.json",
+  "title": "ContainerContainer WASM plugin ABI v1 (step protocol over WASI preview 1 stdin/stdout)",
+  "description": "Each step: the host writes one Envelope to the module's stdin and runs _start; the module writes one Reply to stdout. Bytes are base64 (standard alphabet, padded). Unknown fields must be ignored by both sides.",
+  "$defs": {
+    "Envelope": {
+      "type": "object",
+      "required": ["abi", "hook", "request", "config", "state", "now", "step", "effects"],
+      "properties": {
+        "abi": { "const": 1 },
+        "hook": { "enum": ["realm.authenticate", "realm.bearer", "execution"] },
+        "request": {
+          "oneOf": [
+            { "$ref": "#/$defs/RealmAuthenticateRequest" },
+            { "$ref": "#/$defs/RealmBearerRequest" },
+            { "$ref": "#/$defs/ExecutionRequest" }
+          ]
+        },
+        "config": { "description": "The manifest's config value, verbatim." },
+        "state": { "description": "The plugin's current state value, or null before the first one is stored." },
+        "now": { "type": "integer", "description": "Epoch seconds when the call began; the same for every step of a call." },
+        "step": { "type": "integer", "minimum": 1 },
+        "effects": { "type": "array", "items": { "$ref": "#/$defs/EffectResult" }, "description": "Results, in request order, of the effects the previous step asked for; empty on step 1." }
+      }
+    },
+    "RealmAuthenticateRequest": {
+      "type": "object",
+      "required": ["realm", "username", "password"],
+      "properties": {
+        "realm": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" }
+      }
+    },
+    "RealmBearerRequest": {
+      "type": "object",
+      "required": ["realm", "token"],
+      "properties": {
+        "realm": { "type": "string" },
+        "token": { "type": "string" }
+      }
+    },
+    "ExecutionRequest": {
+      "type": "object",
+      "required": ["name", "method", "params", "headers", "body", "caller"],
+      "properties": {
+        "name": { "type": "string" },
+        "method": { "type": "string" },
+        "params": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } },
+        "headers": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } }, "description": "Lower-case names." },
+        "body": { "type": "string", "description": "base64; empty string for no body." },
+        "caller": {
+          "type": "object",
+          "required": ["username", "admin", "anonymous"],
+          "properties": {
+            "username": { "type": "string" },
+            "admin": { "type": "boolean" },
+            "anonymous": { "type": "boolean" },
+            "realm": {
+              "type": ["object", "null"],
+              "description": "The plugin realm that authenticated this request, if any.",
+              "required": ["plugin", "realm", "expires_at"],
+              "properties": {
+                "plugin": { "type": "string" },
+                "realm": { "type": "string" },
+                "expires_at": { "type": ["integer", "null"] }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Reply": {
+      "type": "object",
+      "required": ["abi"],
+      "properties": {
+        "abi": { "const": 1 },
+        "result": { "oneOf": [{ "$ref": "#/$defs/RealmResult" }, { "$ref": "#/$defs/ExecutionResult" }] },
+        "effects": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/Effect" } },
+        "state": { "description": "Replacement plugin state; omit to keep the current one. Size-capped by the host." }
+      },
+      "oneOf": [{ "required": ["result"] }, { "required": ["effects"] }]
+    },
+    "RealmResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["outcome", "username"],
+          "properties": {
+            "outcome": { "const": "authenticated" },
+            "username": { "type": "string" },
+            "groups": { "type": "array", "items": { "type": "string" } },
+            "jit": { "type": "boolean" },
+            "expires_at": { "type": ["integer", "null"] },
+            "email": { "type": ["string", "null"] }
+          }
+        },
+        { "type": "object", "required": ["outcome"], "properties": { "outcome": { "const": "not_mine" } } },
+        {
+          "type": "object",
+          "required": ["outcome", "reason"],
+          "properties": { "outcome": { "const": "rejected" }, "reason": { "type": "string" } }
+        }
+      ]
+    },
+    "ExecutionResult": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "headers": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } },
+        "body": { "type": "string", "description": "base64; omit or empty for no body." }
+      }
+    },
+    "Effect": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "url"],
+          "properties": {
+            "type": { "const": "http_get" },
+            "url": { "type": "string", "description": "https only; host must be in the manifest's capabilities." },
+            "headers": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "expires_in"],
+          "properties": {
+            "type": { "const": "mint_access_token" },
+            "expires_in": { "type": "integer", "minimum": 1 },
+            "not_after": { "type": ["integer", "null"], "description": "Epoch seconds; the token never outlives it." }
+          },
+          "description": "Execution calls only; for the current caller, with the rules of P4."
+        }
+      ]
+    },
+    "EffectResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "ok"],
+          "properties": {
+            "type": { "const": "http_get" },
+            "ok": { "type": "boolean" },
+            "status": { "type": "integer" },
+            "headers": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } },
+            "body": { "type": "string", "description": "base64" },
+            "error": { "type": "string", "description": "Why the effect was refused or failed; no secrets." }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "ok"],
+          "properties": {
+            "type": { "const": "mint_access_token" },
+            "ok": { "type": "boolean" },
+            "access_token": { "type": "string" },
+            "expires_in": { "type": "integer" },
+            "error": { "type": "string" }
+          }
+        }
+      ]
+    }
+  },
+  "oneOf": [{ "$ref": "#/$defs/Envelope" }, { "$ref": "#/$defs/Reply" }]
+}
