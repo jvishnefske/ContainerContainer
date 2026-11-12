@@ -13,6 +13,8 @@ package org.artifactory.addon.plugin.groovy;
 
 import groovy.lang.Closure;
 import org.artifactory.addon.plugin.ResponseCtx;
+import org.artifactory.addon.plugin.pkgtype.PluginApiHandler;
+import org.artifactory.addon.plugin.pkgtype.PluginApiResponse;
 import org.artifactory.addon.plugin.pkgtype.PluginDownloadHandler;
 import org.artifactory.addon.plugin.pkgtype.PluginIndexHandler;
 import org.artifactory.addon.plugin.pkgtype.PluginPackageType;
@@ -25,9 +27,9 @@ import org.codehaus.groovy.runtime.typehandling.DefaultTypeTransformation;
  * Delegate of a {@code packageType('name') { ... }} block; builds one {@link PluginPackageType}.
  *
  * <p>Keywords: {@code displayName 'text'}, {@code layout 'layout-name'},
- * {@code download { request, repoPath, response -> boolean }}, {@code upload { request, repoPath -> UploadDecision }}
- * and {@code index { repoPath -> }}. Name validation is left to the registry, which reports rejected names
- * in the plugin's status.
+ * {@code download { request, repoPath, response -> boolean }}, {@code upload { request, repoPath -> UploadDecision }},
+ * {@code index { repoPath -> }} and {@code api { request -> PluginApiResponse or Map }}. Name validation is left to
+ * the registry, which reports rejected names in the plugin's status.
  *
  * <p>The closures are adapted to the handler interfaces so that the plugin boundary never throws:
  * <ul>
@@ -40,6 +42,10 @@ import org.codehaus.groovy.runtime.typehandling.DefaultTypeTransformation;
  *         policy must not be bypassed by its own bug. A {@link CancelException} rejects with its status (403 when
  *         it is not 4xx/5xx).</li>
  *     <li>index: failures, including cancellation, are reported; there is no request left to fail.</li>
+ *     <li>api: the closure gets the {@link org.artifactory.addon.plugin.pkgtype.PluginApiRequest} and returns a
+ *         response, converted by {@link ApiResponseConversion}. It fails closed: a failure or a return value that
+ *         is not a valid response is reported and answered with a generic 500. A {@link CancelException} answers
+ *         with its status (500 when it is not 4xx/5xx) and message as plain text.</li>
  * </ul>
  */
 public final class PackageTypeDelegate {
@@ -81,6 +87,11 @@ public final class PackageTypeDelegate {
         builder.index(indexHandler(closure));
     }
 
+    /** Sets the HTTP API handler. */
+    public void api(Closure<?> closure) {
+        builder.api(apiHandler(closure));
+    }
+
     PluginPackageType build() {
         return builder.build();
     }
@@ -99,6 +110,43 @@ public final class PackageTypeDelegate {
     private PluginIndexHandler indexHandler(Closure<?> closure) {
         String what = "packageType(" + name + ").index";
         return stored -> indexed(HookInvoker.invoke(closure, null, stored), what);
+    }
+
+    private PluginApiHandler apiHandler(Closure<?> closure) {
+        String what = "packageType(" + name + ").api";
+        return request -> apiResponse(HookInvoker.invoke(closure, null, request), what);
+    }
+
+    private PluginApiResponse apiResponse(HookOutcome outcome, String what) {
+        return switch (outcome) {
+            case HookOutcome.Completed completed -> converted(ApiResponseConversion.convert(completed.value()), what);
+            case HookOutcome.Failed failed -> {
+                reporter.report(pluginName, what, failed.error());
+                yield apiFailure();
+            }
+            case HookOutcome.Cancelled cancelled -> PluginApiResponse.text(
+                    apiCancelStatus(cancelled.cancel().getErrorCode()), "text/plain",
+                    String.valueOf(cancelled.cancel().getMessage()));
+        };
+    }
+
+    private PluginApiResponse converted(ApiResponseConversion.Result result, String what) {
+        if (result instanceof ApiResponseConversion.Result.Valid valid) {
+            return valid.response();
+        }
+        reporter.report(pluginName, what,
+                new IllegalStateException(((ApiResponseConversion.Result.Invalid) result).reason()));
+        return apiFailure();
+    }
+
+    /** The generic 500 a failed or invalid {@code api} closure is answered with; carries no failure details. */
+    static PluginApiResponse apiFailure() {
+        return PluginApiResponse.text(500, "text/plain", "The repository's package type failed to handle the request");
+    }
+
+    /** @return {@code status} when it is a 4xx or 5xx, otherwise 500 */
+    static int apiCancelStatus(int status) {
+        return status >= 400 && status <= 599 ? status : 500;
     }
 
     private boolean handled(HookOutcome outcome, ResponseCtx response, String what) {

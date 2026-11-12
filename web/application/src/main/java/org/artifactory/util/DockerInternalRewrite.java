@@ -2,6 +2,7 @@
  *
  * Artifactory is a binaries repository manager.
  * Copyright (C) 2018 JFrog Ltd.
+ * Modifications copyright (C) 2026 the fork authors.
  *
  * Artifactory is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -22,6 +23,9 @@ package org.artifactory.util;
 import com.jfrog.sysconf.SysConfig;
 import com.jfrog.sysconf.SysConfigConstants;
 import org.apache.http.conn.util.InetAddressUtils;
+import org.artifactory.addon.plugin.pkgtype.PluginPackageTypeRegistry;
+import org.artifactory.api.context.ArtifactoryContext;
+import org.artifactory.api.context.ContextHelper;
 import org.artifactory.common.home.ArtifactoryHome;
 import org.artifactory.descriptor.repo.ReverseProxyDescriptor;
 import org.artifactory.descriptor.repo.ReverseProxyMethod;
@@ -38,6 +42,8 @@ import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static org.artifactory.util.ConfReverseProxyHelper.getReverseProxyDescriptor;
@@ -50,6 +56,7 @@ public class DockerInternalRewrite implements RedirectionHandler {
     private static final Logger log = LoggerFactory.getLogger(DockerInternalRewrite.class);
 
     private static final String V2 = "/v2/";
+    private static final String V2_NO_SLASH = "/v2";
 
     @Override
     public boolean shouldRedirect(ServletRequest request) {
@@ -92,6 +99,7 @@ public class DockerInternalRewrite implements RedirectionHandler {
     /**
      * Do internal rewrite of url into Docker v2 repositories
      * /v2/{repo}/ ==> /api/docker/{repo}/v2/
+     * /v2/ (the registry ping) ==> /api/docker/v2/, and /v2 too once a plugin package type serves an HTTP API
      * and for domain XXXX.*.*.* /v2/ ==> /api/docker/XXXX/v2/
      * The domain rewrite is controled rewrite.config
      */
@@ -100,12 +108,56 @@ public class DockerInternalRewrite implements RedirectionHandler {
         if (relPath == null) {
             return null;
         }
+        if (!relPath.startsWith(V2_NO_SLASH)) {
+            return null;
+        }
         String serverName = request.getServerName();
-        ReverseProxyMethod dockerReverseProxyMethod = ConfReverseProxyHelper.getReverseProxyMethod();
+        boolean pluginApi = pluginApiTypeRegistered();
+        ReverseProxyMethod dockerReverseProxyMethod = effectiveMethod(getReverseProxyDescriptor() != null,
+                () -> pluginApi, ConfReverseProxyHelper::getReverseProxyMethod);
         return getInternalRewrite(
                 serverName,
-                relPath,
+                pingPath(relPath, pluginApi),
                 dockerReverseProxyMethod);
+    }
+
+    /**
+     * Fork: once a plugin package type serves an HTTP API, the bare ping {@code /v2} is the same request as
+     * {@code /v2/} (docker and podman send the slash, other clients may not). Otherwise {@code /v2} stays
+     * unrewritten, as in stock Artifactory. Pure.
+     */
+    static String pingPath(String relPath, boolean pluginApiTypeRegistered) {
+        return pluginApiTypeRegistered && V2_NO_SLASH.equals(relPath) ? V2 : relPath;
+    }
+
+    /**
+     * Fork: the rewrite method to use. Stock Artifactory defaults to {@link ReverseProxyMethod#SUBDOMAIN} when no
+     * reverse proxy is configured, which maps {@code reg.example.com/v2/...} to repository {@code reg} and leaves
+     * dot-less hosts such as {@code localhost} unrewritten. Once a plugin package type serves an HTTP API, an
+     * instance without reverse proxy configuration uses {@link ReverseProxyMethod#REPOPATHPREFIX} instead, so
+     * {@code <host>/v2/<repoKey>/<image>/...} reaches repository {@code repoKey} whatever the host name. A
+     * configured reverse proxy, or no plugin HTTP API, keeps the stock behaviour. Pure given its suppliers.
+     */
+    static ReverseProxyMethod effectiveMethod(boolean reverseProxyConfigured, BooleanSupplier pluginApiTypeRegistered,
+            Supplier<ReverseProxyMethod> configuredMethod) {
+        if (!reverseProxyConfigured && pluginApiTypeRegistered.getAsBoolean()) {
+            return ReverseProxyMethod.REPOPATHPREFIX;
+        }
+        return configuredMethod.get();
+    }
+
+    private static boolean pluginApiTypeRegistered() {
+        ArtifactoryContext context = ContextHelper.get();
+        if (context == null) {
+            return false;
+        }
+        try {
+            return context.beanForType(PluginPackageTypeRegistry.class).all().stream()
+                    .anyMatch(type -> type.api().isPresent());
+        } catch (RuntimeException e) {
+            log.debug("Plugin package type registry unavailable: {}", e.getMessage());
+            return false;
+        }
     }
 
     private static String getServletRelativePath(HttpServletRequest request) {

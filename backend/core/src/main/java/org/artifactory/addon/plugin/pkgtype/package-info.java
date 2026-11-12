@@ -20,6 +20,13 @@
  *
  * <p>This package is the contract between the Groovy plugin engine, which
  * registers types, and the request path (download, upload, storage events,
- * repository validation), which looks them up. It depends on neither side.
+ * repository validation, the HTTP API), which looks them up. It depends on
+ * neither side.
+ *
+ * <p>A type may serve a full HTTP API through a {@link org.artifactory.addon.plugin.pkgtype.PluginApiHandler}:
+ * every method on {@code /api/docker/{repoKey}/...} and {@code /api/pkg/{repoKey}/...} (and, through the
+ * {@code /v2/} rewrite, {@code /v2/{repoKey}/...}) reaches it as an immutable
+ * {@link org.artifactory.addon.plugin.pkgtype.PluginApiRequest} after the caller's permission is checked, and it
+ * answers with a {@link org.artifactory.addon.plugin.pkgtype.PluginApiResponse} value.
  */
 package org.artifactory.addon.plugin.pkgtype;

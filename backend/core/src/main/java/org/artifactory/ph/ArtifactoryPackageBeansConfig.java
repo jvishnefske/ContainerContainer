@@ -6,7 +6,8 @@ import com.jfrog.ph.acl.listener.config.PackageConfigChangedEventType;
 import com.jfrog.ph.acl.listener.config.PackageRepoConfigListenerContext;
 import com.jfrog.ph.acl.listener.repository.PackageRepositoryEventListener;
 import com.jfrog.ph.acl.model.PackageArtifact;
-import com.jfrog.ph.acl.model.PackageAuthenticationRequestContext;
+import org.artifactory.addon.plugin.pkgtype.PluginPackageTypeRegistry;
+import org.artifactory.addon.plugin.pkgtype.impl.PluginApiAuthenticationAdapter;
 import com.jfrog.ph.acl.resource.PackageApiEndPoint;
 import com.jfrog.ph.acl.service.PackageAnalyticsService;
 import com.jfrog.ph.acl.service.PackageArtifactService;
@@ -83,6 +84,7 @@ import org.artifactory.storage.db.util.ArtifactoryJdbcHelper;
 import org.artifactory.storage.security.service.UserGroupStoreService;
 import org.artifactory.traffic.TrafficService;
 import org.jfrog.storage.hqc.service.HeavyQueryCacheService;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -203,10 +205,16 @@ public class ArtifactoryPackageBeansConfig {
         return new PackageAuthenticationFilterImpl(packageAuthenticationAdapter);
     }
 
+    /**
+     * The OSS package authentication adapter. Upstream it handled nothing; the fork's
+     * {@link PluginApiAuthenticationAdapter} accepts Basic credentials on {@code /api/docker/} once a plugin package
+     * type with an HTTP API is registered, and handles nothing otherwise.
+     */
     @Bean
     @ConditionalOnMissingBean(PackageAuthenticationAdapter.class)
-    public PackageAuthenticationAdapter packageAuthenticationAdapter() {
-        return request -> PackageAuthenticationRequestContext.builder().build();
+    public PackageAuthenticationAdapter packageAuthenticationAdapter(PluginPackageTypeRegistry pluginPackageTypes,
+            ObjectProvider<SecurityService> securityService) {
+        return new PluginApiAuthenticationAdapter(pluginPackageTypes, securityService::getObject);
     }
 
     @Bean

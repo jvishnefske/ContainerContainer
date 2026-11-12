@@ -2,15 +2,20 @@ package org.artifactory.ph;
 
 import com.jfrog.sysconf.SysConfig;
 import com.jfrog.sysconf.SysConfigHelper;
+import org.artifactory.addon.plugin.pkgtype.PluginPackageTypeRegistry;
+import org.artifactory.addon.plugin.pkgtype.impl.PluginApiAuthenticationAdapter;
 import org.artifactory.common.home.ArtifactoryHome;
 import org.artifactory.common.property.ArtifactorySystemProperties;
 import org.mockito.Mock;
+import org.springframework.beans.factory.ObjectProvider;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.assertNotNull;
 
 @Test
@@ -120,7 +125,9 @@ public class ArtifactoryPackageBeansConfigTest {
 
     @Test
     public void testPackageAuthenticationAdapter() {
-        assertNotNull(new ArtifactoryPackageBeansConfig().packageAuthenticationAdapter());
+        assertTrue(new ArtifactoryPackageBeansConfig().packageAuthenticationAdapter(
+                mock(PluginPackageTypeRegistry.class), mock(ObjectProvider.class))
+                instanceof PluginApiAuthenticationAdapter);
     }
 
     @Test

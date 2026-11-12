@@ -19,7 +19,8 @@ import java.util.Optional;
  *
  * <p>Construct it with {@link #builder(String, String)}. The handlers are
  * optional: a type with no download handler serves its repositories exactly as
- * Generic does.
+ * Generic does, and a type with no API handler has no HTTP API (its
+ * {@code /api/docker/} and {@code /api/pkg/} URLs answer 404).
  *
  * @param name         unique type name, validated by {@link PluginPackageTypes#validateName(String)}
  * @param displayName  human-readable name
@@ -28,6 +29,8 @@ import java.util.Optional;
  * @param download     optional handler for GET/HEAD requests
  * @param upload       optional handler for PUT requests
  * @param index        optional handler run after an artifact is stored
+ * @param api          optional handler of the type's HTTP API ({@code /api/docker/{repoKey}/...} and
+ *                     {@code /api/pkg/{repoKey}/...}), see {@link PluginApiHandler}
  */
 public record PluginPackageType(
         String name,
@@ -36,7 +39,8 @@ public record PluginPackageType(
         Optional<String> layoutName,
         Optional<PluginDownloadHandler> download,
         Optional<PluginUploadHandler> upload,
-        Optional<PluginIndexHandler> index) {
+        Optional<PluginIndexHandler> index,
+        Optional<PluginApiHandler> api) {
 
     public PluginPackageType {
         Objects.requireNonNull(name, "name");
@@ -46,6 +50,14 @@ public record PluginPackageType(
         Objects.requireNonNull(download, "download");
         Objects.requireNonNull(upload, "upload");
         Objects.requireNonNull(index, "index");
+        Objects.requireNonNull(api, "api");
+    }
+
+    /** A type without an HTTP API handler; kept so code written before {@link #api()} existed compiles unchanged. */
+    public PluginPackageType(String name, String displayName, String pluginName, Optional<String> layoutName,
+            Optional<PluginDownloadHandler> download, Optional<PluginUploadHandler> upload,
+            Optional<PluginIndexHandler> index) {
+        this(name, displayName, pluginName, layoutName, download, upload, index, Optional.empty());
     }
 
     public static Builder builder(String name, String pluginName) {
@@ -61,6 +73,7 @@ public record PluginPackageType(
         private PluginDownloadHandler download;
         private PluginUploadHandler upload;
         private PluginIndexHandler index;
+        private PluginApiHandler api;
 
         private Builder(String name, String pluginName) {
             this.name = name;
@@ -93,10 +106,15 @@ public record PluginPackageType(
             return this;
         }
 
+        public Builder api(PluginApiHandler value) {
+            this.api = value;
+            return this;
+        }
 
         public PluginPackageType build() {
             return new PluginPackageType(name, displayName, pluginName, Optional.ofNullable(layoutName),
-                    Optional.ofNullable(download), Optional.ofNullable(upload), Optional.ofNullable(index));
+                    Optional.ofNullable(download), Optional.ofNullable(upload), Optional.ofNullable(index),
+                    Optional.ofNullable(api));
         }
     }
 }
