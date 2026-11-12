@@ -502,6 +502,42 @@ abandoned upload sessions, remote and virtual repositories of the type,
 token authentication (Basic only), `/v2/_catalog`, and automatic mounting
 without `from`.
 
+## Plugin realms
+
+Generic authentication support for Groovy plugins, in the spirit of JFrog
+Pro's `realms {}` but with explicit, fail-closed results. Nothing here knows
+about OIDC.
+
+- [ ] P1. A plugin declares `realms { name(autoCreateUsers: bool, realmPolicy:
+      'additive'|'exclusive') { authenticate { username, credentials -> }
+      bearer { token -> } userExists { username -> } } }`. `authenticate`
+      sees Basic credentials, `bearer` sees the raw token of an
+      `Authorization: Bearer` header; either is optional. Each returns an
+      explicit result: authenticated as a username (with optional group names
+      and an optional just-in-time user flag), not mine (pass to the next
+      provider), or rejected. Any other return value, and any exception, counts
+      as "not mine" for that realm and is reported in plugin status, so a
+      broken plugin cannot let anyone in.
+- [ ] P2. One plugin realm authentication provider sits in the Spring provider
+      chain before the internal database provider, so plugin realms can claim
+      credentials before they are checked against stored passwords. Access
+      tokens issued by Artifactory itself keep authenticating as before:
+      bearer tokens whose issuer is this Artifactory's Access are never offered
+      to plugin realms.
+- [ ] P3. A realm can never grant admin. Groups a realm returns are applied
+      only if they already exist, and never include groups that carry admin
+      privileges. A just-in-time user is created in a realm named after the
+      plugin realm, with no password, and is not admin.
+- [ ] P4. The `security` binding gains, for realm and execution code only,
+      `createAccessToken(expiresInSeconds)` for the current authenticated user
+      (minted through Access, scope `applied-permissions/user`, refused for
+      anonymous), plus `findUser(name)`.
+- [ ] P5. Plugin executions can allow every authenticated (non-anonymous)
+      caller, for example with `users: ['*']`, without opening them to
+      anonymous callers.
+- [ ] P6. With no plugin realm loaded, authentication behaves exactly as stock
+      OSS, and the existing suites pass unchanged.
+
 ## OIDC token federation with login.example.com
 
 The identity provider is Auth0 on the custom domain `login.example.com`
@@ -513,6 +549,15 @@ OAuth/OIDC login (`OAuthHandlerDefaultImpl` is a stub) and no token exchange;
 JFrog Access tokens already work as Bearer or Basic password. This phase lets
 callers holding an Auth0 JWT access token use Artifactory; browser SSO and the
 registry Bearer challenge come later.
+
+It is implemented as a Groovy plugin, `plugins/oidc/oidc-federation.groovy`,
+configured by `oidc-federation.yaml` beside it in the plugins directory (so a
+Helm `userPluginSecrets` Secret ships both). Java contributes only the generic
+plugin realm support below (P1–P6); everything specific to OIDC and Auth0 is
+in the plugin. Where I1–I8 say "configured", that means the plugin's YAML;
+I5's exchange is the plugin execution `oidcToken` (`POST
+/artifactory/api/plugins/execute/oidcToken`) run by a caller the realm has
+already authenticated from the JWT, rather than a dedicated Java endpoint.
 
 Auth0 facts the design depends on: JWT access tokens are issued only when the
 client asks for an API `audience`, otherwise the token is opaque and there is
