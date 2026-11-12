@@ -346,39 +346,152 @@ service in `pkgtype/impl/` (`PluginApiGate`, `PluginApiService`,
       failed (9 skipped), web/rest 1220 run 0 failed, web/rest-ui 3069 run 0
       failed (3 skipped), web/application 537 run 0 failed.
 
-### OCI registry plugin (next phase)
+### OCI registry plugin
 
 Phase 2 writes an OCI Distribution Spec v1.1 registry as a Groovy plugin on
-the API above. These items are unchecked until a named test demonstrates
-them.
+the API above: `plugins/oci/oci-registry.groovy`, package type
+`oci-registry` (the built-in `docker` and `oci` names are taken), described
+in `plugins/oci/README.md`. It needed no Java change. Unit evidence is
+`org.artifactory.addon.plugin.groovy.OciRegistryPluginTest` (backend/core),
+which loads the shipped file into the plugin engine with the real
+`repositories` binding over an in-memory repository
+(`InMemoryRepositoryService`) and asserts after every test that no other
+repository was touched and no content handle was left open. Live evidence is
+`docker/it/run-oci-it.sh`, run on 2026-11-12 (UTC) against the overlay of
+`releases-docker.jfrog.io/jfrog/artifactory-oss@sha256:d103c0464d33645acdcbfbb6fc61310d7faf14c9893975cbee562487eaeac1d1`
+with docker 29.1.3 (classic image store) and podman 4.9.3 as clients: 63
+assertions passed, 0 failed.
 
-- [ ] O1. `docker push` and `docker pull` of a single-platform image against
+- [x] O1. `docker push` and `docker pull` of a single-platform image against
       `<host>/v2/<repoKey>/<name>` work after `docker login` with Artifactory
       credentials; the same with `podman`.
-- [ ] O2. Monolithic upload: `POST .../blobs/uploads/?digest=` in one request,
+      Evidence: `run-oci-it.sh` `O1.docker-login`, `O1.docker-push`,
+      `O1.docker-pull-by-tag-same-image-id`,
+      `O1.docker-pull-by-digest-same-image-id`, `O1.podman-login`,
+      `O1.podman-push`, `O1.podman-pull-by-tag-same-image-id`,
+      `O1.podman-pull-by-digest-same-image-id`.
+- [x] O2. Monolithic upload: `POST .../blobs/uploads/?digest=` in one request,
       and `POST` followed by a single `PUT ...?digest=`; the stored blob's
       SHA-256 is verified against the digest and a mismatch is refused.
-- [ ] O3. Chunked upload: `POST`, one or more `PATCH` with `Content-Range`,
+      Evidence: `run-oci-it.sh` `O2.monolithic-post-201`,
+      `O2.blob-get-exact-content`, `O2.blob-head-size`, `O2.blob-range-206`,
+      `O2.post-then-put-201`, `O2.digest-mismatch-400-DIGEST_INVALID`,
+      `O2.mismatched-content-not-stored`,
+      `O2.large-64MiB-blob-streamed-round-trip`; unit
+      `OciRegistryPluginTest#monolithicPostWithDigestStoresTheVerifiedBlobAndServesItWithExactHeaders`,
+      `#postThenSinglePutWithDigestCompletesTheUpload`,
+      `#digestMismatchDeletesTheUploadAndAnswersDigestInvalid`,
+      `#invalidAndUnsupportedDigestsAreRefusedBeforeAnyStorageAccess`,
+      `#rangeRequestsServeExactSlices`,
+      `#contentAtADigestPathThatDoesNotMatchItsDigestIsNeitherServedNorTrusted`,
+      `#concurrentPushOfTheSameBlobResolvesToTheVerifiedBlob`. An upload body
+      sent as `application/x-www-form-urlencoded` is consumed by servlet
+      parameter parsing in Artifactory's filters before the plugin runs, so it
+      is refused as a digest mismatch (fails closed; registry clients send
+      `application/octet-stream`).
+- [x] O3. Chunked upload: `POST`, one or more `PATCH` with `Content-Range`,
       final `PUT ...?digest=`, with `Location`, `Range`, `Docker-Upload-UUID`
       and `OCI-Chunk-Min-Length` headers; out-of-order chunks are refused with
       416; upload status by `GET` on the upload URL.
-- [ ] O4. Cross-repository blob mount `POST .../blobs/uploads/?mount=&from=`
+      Evidence: `run-oci-it.sh` `O3.post-202-session-headers`,
+      `O3.out-of-order-chunk-416`, `O3.first-chunk-202-range`,
+      `O3.upload-status-204`, `O3.second-chunk-202-range`,
+      `O3.final-put-201`, `O3.assembled-blob-matches`,
+      `O3.finished-session-gone-404`; unit
+      `OciRegistryPluginTest#chunkedUploadChecksOrderReportsStatusAndAssemblesTheBlob`,
+      `#streamedPatchOfUnknownLengthAndFinalChunkInPutAreAppended`,
+      `#chunkWhoseLengthDisagreesWithItsRangeIsRefused`,
+      `#uploadSessionsAreStrictUuidsOwnedByTheirCreator`.
+- [x] O4. Cross-repository blob mount `POST .../blobs/uploads/?mount=&from=`
       (optional: falling back to 202 and a normal upload is conformant).
-- [ ] O5. Manifests by tag and by digest: `PUT`, `GET` and `HEAD`, with
+      Mounts are served only from names in the same Artifactory repository;
+      any other `from` gets an upload session, because following it would
+      bypass the other repository's read permission.
+      Evidence: `run-oci-it.sh` `O4.mount-same-repository-201`,
+      `O4.mounted-blob-served`,
+      `isolation.cross-repository-mount-falls-back-to-202`; unit
+      `OciRegistryPluginTest#mountFromANameInTheSameRepositoryCreatesTheBlob`,
+      `#mountFromAnotherRepositoryNeverReadsItAndFallsBackToAnUploadSession`.
+- [x] O5. Manifests by tag and by digest: `PUT`, `GET` and `HEAD`, with
       `Docker-Content-Digest`, the stored media type as `Content-Type`, and
       both OCI and Docker schema 2 manifests.
+      Evidence: `run-oci-it.sh` `O5.get-by-tag-media-type-and-digest`,
+      `O5.head-by-digest-exact-length`, `O5.put-by-tag-201`,
+      `O5.podman-docker-schema2-push-served-as-schema2`,
+      `O5.missing-blob-400-MANIFEST_BLOB_UNKNOWN`,
+      `O5.oversize-manifest-413`; unit
+      `OciRegistryPluginTest#ociManifestByTagAndDigestWithItsMediaTypeAndDigestHeaders`,
+      `#manifestWithoutMediaTypeIsServedWithTheContentTypeItWasPushedWith`,
+      `#manifestReferencingAMissingBlobOrABlobOfAnotherNameIsRefused`,
+      `#invalidManifestsAreRefused`,
+      `#oversizeManifestIsRefusedWith413WithoutBufferingIt`,
+      `#retaggingNeedsOverwritePermissionAndReportsDenied`.
 - [ ] O6. Image index and Docker manifest list (multi-platform images) push
       and pull, including `docker buildx` multi-platform push.
-- [ ] O7. Tag listing `GET .../tags/list` with `n` and `last` pagination and
+      Shown except for `docker buildx`, which is not installed on the test
+      host (and the classic docker image store cannot push a multi-platform
+      build without a BuildKit container): podman pushes a two-platform image
+      as an OCI index and as a Docker manifest list, both are served with
+      their media type and resolvable children, and podman pulls the arm64
+      image from the index (`run-oci-it.sh` `O6.podman-multi-platform-push`,
+      `O6.oci-list-served-with-its-media-type`,
+      `O6.docker-list-served-with-its-media-type`,
+      `O6.podman-pull-selects-arm64-from-index`; unit
+      `OciRegistryPluginTest#dockerSchema2ManifestAndManifestListAndOciIndex`).
+- [x] O7. Tag listing `GET .../tags/list` with `n` and `last` pagination and
       the `Link` header.
-- [ ] O8. Deletion of manifests by digest, tags, and blobs, answering 202, and
+      Evidence: `run-oci-it.sh` `O7.first-page-and-link`,
+      `O7.next-page-follows-link`, `O7.last-page-without-link`,
+      `O7.full-list-sorted`; unit
+      `OciRegistryPluginTest#tagListIsSortedAndPaginatedWithALinkHeader`.
+- [x] O8. Deletion of manifests by digest, tags, and blobs, answering 202, and
       404 afterwards.
-- [ ] O9. The OCI distribution-spec conformance suite passes its pull, push,
+      Evidence: `run-oci-it.sh` `O8.delete-tag-202`, `O8.deleted-tag-404`,
+      `O8.delete-manifest-by-digest-202`, `O8.deleted-manifest-404`,
+      `O8.delete-blob-202`, `O8.deleted-blob-404`; unit
+      `OciRegistryPluginTest#deleteByTagThenByDigestRemovesTagsAndAnswers404Afterwards`,
+      `#deleteBlobAnswers202ThenThe404`.
+- [x] O9. The OCI distribution-spec conformance suite passes its pull, push,
       content discovery and content management workflows against the
       plugin.
-- [ ] O10. Permissions hold end to end: a read-only user can pull but not
+      Evidence: `run-oci-it.sh` `O9.conformance-pull-push-discovery-management`
+      runs `ghcr.io/opencontainers/distribution-spec/conformance@sha256:287c9c1cb6511da2789b5c2dc3f0f8285c2fb73e031a634f86dccd52556a6ca5`
+      (v1.1.0) with all four workflows enabled,
+      `OCI_NAMESPACE=oci-local/conformance`,
+      `OCI_CROSSMOUNT_NAMESPACE=oci-local/crossmount` (the first segment is
+      the repository key) and `OCI_AUTOMATIC_CROSSMOUNT=false`: 76 of 80
+      specs ran, 76 passed, 0 failed. The 4 skipped specs are alternatives
+      the suite skips by configuration: "Get tag name from environment" and
+      "Populate registry with test tags (no push)" (the suite pushes its own
+      data), "Cross-mounting of nonexistent blob should yield session id"
+      (runs only when the mount answered 202; it answered 201) and
+      "Cross-mounting without from, and automatic content discovery enabled
+      should return a 201" (automatic mounting is not implemented; its
+      "disabled should return a 202" counterpart passed). The suite's content
+      discovery workflow covers the referrers API, also unit tested by
+      `OciRegistryPluginTest#referrersListManifestsWithASubjectAndFilterByArtifactType`.
+- [x] O10. Permissions hold end to end: a read-only user can pull but not
       push (403), an anonymous client is challenged (401), and a user without
       delete permission cannot delete.
+      Evidence: `run-oci-it.sh` `O10.anonymous-ping-challenged-401`,
+      `O10.anonymous-pull-challenged-401`, `O10.reader-can-pull`,
+      `O10.reader-podman-push-refused`, `O10.reader-push-403`,
+      `O10.reader-delete-403`,
+      `O10.deployer-can-push-without-delete-permission`,
+      `O10.user-without-delete-permission-cannot-delete-403`. Isolation:
+      `isolation.path-traversal-does-not-leak`,
+      `isolation.reader-has-no-access-to-oci-other`,
+      `isolation.direct-deploy-refused`; unit
+      `OciRegistryPluginTest#invalidNamesAndPathTraversalAreRefusedBeforeAnyStorageAccess`,
+      `#directHttpDeploysIntoTheRepositoryAreRefusedButInternalDeploysPass`.
+      Users and permission targets are created through the UI REST API
+      (`/artifactory/ui/users`, `/artifactory/ui/permissiontargets`), because
+      the public security API is a Pro feature in OSS.
+
+Out of scope for the plugin: garbage collection of unreferenced blobs and of
+abandoned upload sessions, remote and virtual repositories of the type,
+token authentication (Basic only), `/v2/_catalog`, and automatic mounting
+without `from`.
 
 ## Out of scope for the first iteration
 
