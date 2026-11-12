@@ -670,6 +670,12 @@ hooks feed the same Java enforcement as Groovy ones: realm results go through P1
       out-of-memory, oversized or malformed reply, too many steps, or a disallowed effect fails closed: a realm call
       counts as "not mine" and is reported, and an execution answers 500, and no `state` from a failed call is kept.
       Every step uses a fresh instance, so nothing survives in module memory between steps or calls.
+- [ ] W7. WASM runs entirely inside the JRE: only Endive's pure-Java execution (the interpreter, and, when a
+      manifest opts in, its compilers to JVM bytecode). No JNI, no Panama FFM or other native code, and no native
+      backend (Endive's experimental Cranelift-based Redline is excluded). A build check bans `run.endive` native
+      backend artifacts and any dependency that ships native libraries for the WASM path, and a test confirms a
+      module executes with native access disabled (`--illegal-native-access=deny` and no
+      `--enable-native-access` for the WASM classes).
 - [ ] W5. A public example module (Rust, `wasm32-wasip1`, `#![forbid(unsafe_code)]`) under `plugins/wasm-examples/`
       exercises every hook, both effects and state. The Java tests run it from a committed build; CI rebuilds it from source and checks it matches.
 - [ ] W6. With no WASM plugins, behavior and test suites are unchanged, and Groovy plugins work as before.
