@@ -90,6 +90,9 @@ class PluginRealmAuthenticationProviderTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // Surefire reuses threads across test classes, and a class that ran earlier on this thread may have left a
+        // mocked SecurityContext behind (whose setAuthentication does nothing). Start from a real, empty context.
+        SecurityContextHolder.setContext(SecurityContextHolder.createEmptyContext());
         rig = new PluginTestRig(dir);
         directory = new InMemoryRealmDirectory()
                 .group("readers", false).group("ci", false).group("admins", true)

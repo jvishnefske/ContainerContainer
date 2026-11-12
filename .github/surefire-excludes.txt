@@ -1,0 +1,2 @@
+# Upstream test excluded in CI only: races a sleep against a time budget and fails at random on shared runners.
+**/EmptyTrashServiceLongRunTest.java
