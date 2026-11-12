@@ -41,7 +41,7 @@ import java.util.Set;
  *         {@code security.xml}, placed after LDAP and Crowd and before Access user/password authentication and the
  *         internal database, it offers ordinary user name and password authentications to the {@code authenticate}
  *         closures of exclusive realms, so a realm can claim credentials before stored passwords are checked.
- *         Internal (service to service) authentications are not offered.</li>
+ *         Internal (service to service) authentications and the anonymous login are not offered.</li>
  *     <li>As the {@link PluginRealmGateway} of {@code PasswordDecryptingManager}, it is offered Bearer tokens and
  *         Basic passwords that are JWTs not issued by Access ({@link CredentialRouting}), which would otherwise go
  *         straight to Access token verification and never reach the chain. Access tokens keep their path and are
@@ -140,12 +140,14 @@ public class PluginRealmAuthenticationProvider implements RealmAwareAuthenticati
     }
 
     /**
-     * Whether {@code authentication} is an ordinary user name and password authentication. Pure.
+     * Whether {@code authentication} is an ordinary user name and password authentication: not an internal one and
+     * not the anonymous login {@code AccessFilter} performs for requests without credentials. Pure.
      */
     static boolean offeredToChain(Authentication authentication) {
         return authentication instanceof UsernamePasswordAuthenticationToken
                 && !(authentication instanceof InternalUsernamePasswordAuthenticationToken)
-                && authentication.getPrincipal() != null;
+                && authentication.getPrincipal() != null
+                && !UserInfo.isAnonymous(String.valueOf(authentication.getPrincipal()));
     }
 
     private static List<PluginRealm> realmsOf(GroovyPluginsAddon addon) {

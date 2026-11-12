@@ -52,7 +52,8 @@ import java.util.function.Supplier;
  * groups, under the same group rules, to authentications whose type is known to carry no token scope.
  *
  * <p>Nothing is cached here: the request-level caching of {@code AccessFilter} applies as for every other
- * provider, bounded by the realm's {@code expiresAt}; failures are never cached.
+ * provider, bounded by the realm's {@code expiresAt} and revoked as soon as the realm is no longer loaded (see
+ * {@link PluginRealmAuthentication#revoked()}); failures are never cached.
  */
 public final class PluginRealmAuthenticator {
 
@@ -158,8 +159,7 @@ public final class PluginRealmAuthenticator {
         extra.forEach(copy::addGroup);
         SimpleUser withGroups = new SimpleUser(copy);
         if (authentication instanceof PluginRealmAuthentication realmAuth) {
-            return new PluginRealmAuthentication(withGroups, realmAuth.pluginName(), realmAuth.realmName(),
-                    realmAuth.expiresAt(), authentication.getDetails());
+            return realmAuth.withPrincipal(withGroups);
         }
         UsernamePasswordAuthenticationToken result = new UsernamePasswordAuthenticationToken(withGroups, "",
                 withGroups.getAuthorities());
@@ -228,7 +228,20 @@ public final class PluginRealmAuthenticator {
             throw rejected(realm, "the granted user would be an administrator");
         }
         return new PluginRealmAuthentication(new SimpleUser(principal), realm.pluginName(), realm.name(),
-                result.expiresAt(), details);
+                result.expiresAt(), details, () -> stillLoaded(realm));
+    }
+
+    /**
+     * @return whether {@code realm} is still part of the current plugin generation; a reload builds new realm
+     *         values (with new closures), so a realm of an earlier generation never is
+     */
+    private boolean stillLoaded(PluginRealm realm) {
+        for (PluginRealm current : realms.get()) {
+            if (current == realm) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private UserInfo created(PluginRealm realm, RealmGrantPolicy.CreateRealmUser create) {

@@ -380,7 +380,7 @@ public class AccessFilter extends DelayedFilterBase implements SecurityListener 
 
     /**
      * Checks the authentication state and verifies the filter doesn't require re-authentication.
-     * An {@link ExpiringAuthentication} past its expiry always requires it, so neither the session nor the
+     * An {@link ExpiringAuthentication} that expired or was revoked always requires it, so neither the session nor the
      * header cache reuses it.
      */
     private boolean reAuthenticationRequired(HttpServletRequest request, Authentication authentication,
@@ -390,8 +390,8 @@ public class AccessFilter extends DelayedFilterBase implements SecurityListener 
             return false;
         }
 
-        // Fork: an authentication from an expiring credential (a plugin realm's JWT) is never reused past its expiry
-        if (ExpiringAuthentication.isExpired(authentication, System.currentTimeMillis() / 1000)) {
+        // Fork: an authentication from a plugin realm is never reused past its JWT expiry or after a plugin reload
+        if (ExpiringAuthentication.isUnusable(authentication, System.currentTimeMillis() / 1000)) {
             return true;
         }
 

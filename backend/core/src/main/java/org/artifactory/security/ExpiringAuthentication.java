@@ -16,27 +16,34 @@ import org.springframework.security.core.Authentication;
 import java.util.OptionalLong;
 
 /**
- * An authentication derived from a credential that expires, such as a JWT accepted by a plugin realm.
+ * An authentication derived from a credential that expires or can be withdrawn, such as a JWT accepted by a plugin
+ * realm.
  *
  * <p>Artifactory keeps successful authentications in the HTTP session and in a header-keyed cache for a few
- * minutes ({@code security.authentication.cache.idleTimeSecs}). {@code AccessFilter} asks {@link #isExpired} before
- * reusing one, so a cached authentication is never used past the expiry of the credential it came from.
+ * minutes ({@code security.authentication.cache.idleTimeSecs}). {@code AccessFilter} asks {@link #isUnusable}
+ * before reusing one, so a cached authentication is never used past the expiry of the credential it came from, nor
+ * after whatever granted it was withdrawn (for a plugin realm: the plugin was reloaded or removed).
  */
 public interface ExpiringAuthentication extends Authentication {
 
     /** @return epoch seconds at which this authentication stops being valid, empty when it does not expire */
     OptionalLong expiresAt();
 
+    /** @return whether whatever granted this authentication has been withdrawn since */
+    default boolean revoked() {
+        return false;
+    }
+
     /**
-     * Pure.
+     * Pure apart from {@link #revoked()}.
      *
-     * @return whether {@code authentication} is an {@link ExpiringAuthentication} whose expiry is at or before
-     *         {@code nowSeconds}
+     * @return whether {@code authentication} is an {@link ExpiringAuthentication} that is revoked or whose expiry is
+     *         at or before {@code nowSeconds}
      */
-    static boolean isExpired(Authentication authentication, long nowSeconds) {
+    static boolean isUnusable(Authentication authentication, long nowSeconds) {
         if (authentication instanceof ExpiringAuthentication expiring) {
             OptionalLong expiresAt = expiring.expiresAt();
-            return expiresAt.isPresent() && expiresAt.getAsLong() <= nowSeconds;
+            return expiring.revoked() || (expiresAt.isPresent() && expiresAt.getAsLong() <= nowSeconds);
         }
         return false;
     }

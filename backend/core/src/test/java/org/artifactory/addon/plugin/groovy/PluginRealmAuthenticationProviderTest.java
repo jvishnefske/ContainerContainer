@@ -149,6 +149,21 @@ class PluginRealmAuthenticationProviderTest {
     }
 
     @Test
+    void anAuthenticationIsRevokedWhenThePluginIsReloadedOrRemoved() throws Exception {
+        loadPlugin();
+        PluginRealmAuthentication auth = (PluginRealmAuthentication) provider.claim(bearer(token("alice")))
+                .orElseThrow();
+        assertFalse(auth.revoked());
+        rig.reload();
+        assertTrue(auth.revoked(), "a reload builds a new realm generation");
+        PluginRealmAuthentication again = (PluginRealmAuthentication) provider.claim(bearer(token("alice")))
+                .orElseThrow();
+        assertFalse(again.revoked());
+        rig.delete("corp.groovy").reload();
+        assertTrue(again.revoked());
+    }
+
+    @Test
     void aRealmUserHasItsStoredGroupsReplacedOnTheNextLogin() throws Exception {
         loadPlugin();
         directory.user("oidc-jit", "plugin:corp", false, "ci");
@@ -223,6 +238,9 @@ class PluginRealmAuthenticationProviderTest {
         Authentication auth = provider.authenticate(new UsernamePasswordAuthenticationToken("alice", "plugin-pass"));
         assertEquals("alice", auth.getName());
         assertNull(provider.authenticate(new UsernamePasswordAuthenticationToken("alice", "secret")));
+        rig.calls.clear();
+        assertNull(provider.authenticate(new UsernamePasswordAuthenticationToken(UserInfo.ANONYMOUS, "")));
+        assertTrue(rig.calls.isEmpty(), "anonymous logins are not offered to realms");
         assertTrue(provider.supports(UsernamePasswordAuthenticationToken.class));
         assertFalse(provider.supports(InternalUsernamePasswordAuthenticationToken.class));
         assertFalse(provider.supports(PropsAuthenticationToken.class));
