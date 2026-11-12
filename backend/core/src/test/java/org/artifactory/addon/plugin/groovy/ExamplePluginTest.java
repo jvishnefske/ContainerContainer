@@ -63,7 +63,7 @@ class ExamplePluginTest {
     void setUp() throws Exception {
         rig = new PluginTestRig(dir);
         rig.extraBindings.put("repositories",
-                new PluginRepositories(repositoryService, mock(PropertiesService.class)));
+                new PluginRepositories(repositoryService, mock(PropertiesService.class), path -> true));
         rig.extraBindings.put("security", new PluginSecurity(mock(SecurityService.class)));
         rig.write("simple-index.groovy", Files.readString(EXAMPLE, StandardCharsets.UTF_8));
         rig.reload();

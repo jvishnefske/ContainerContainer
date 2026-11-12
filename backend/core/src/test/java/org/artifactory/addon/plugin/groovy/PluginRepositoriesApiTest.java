@@ -9,6 +9,8 @@
 
 package org.artifactory.addon.plugin.groovy;
 
+import java.util.List;
+import org.artifactory.fs.ItemInfo;
 import org.artifactory.addon.plugin.pkgtype.PluginApiResponse;
 import org.artifactory.api.common.BasicStatusHolder;
 import org.artifactory.api.common.MoveMultiStatusHolder;
@@ -30,6 +32,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -46,8 +50,44 @@ class PluginRepositoriesApiTest {
 
     private final RepositoryService repositoryService = mock(RepositoryService.class);
     private final PluginRepositories repositories =
-            new PluginRepositories(repositoryService, mock(PropertiesService.class));
+            new PluginRepositories(repositoryService, mock(PropertiesService.class), path -> true);
     private final RepoPath blob = RepoPathFactory.create("images", "blobs/sha256/" + SHA256);
+
+    /** A binding whose caller may read nothing; every read must look absent or refuse. */
+    private final PluginRepositories denied =
+            new PluginRepositories(repositoryService, mock(PropertiesService.class), path -> false);
+
+    @Test
+    void unreadablePathsLookAbsentAndNeverReachTheContentService() {
+        when(repositoryService.exists(blob)).thenReturn(true);
+        assertFalse(denied.exists(blob));
+        assertTrue(denied.findFile(blob).isEmpty());
+        assertTrue(denied.openContent(blob).isEmpty());
+        assertTrue(denied.getChildren(blob.getParent()).isEmpty());
+        assertThrows(PluginRepositories.ReadDeniedException.class, () -> denied.getContent(blob));
+        assertThrows(PluginRepositories.ReadDeniedException.class, () -> denied.getStringContent(blob));
+        assertThrows(PluginRepositories.ReadDeniedException.class, () -> denied.getFileInfo(blob));
+        assertThrows(PluginRepositories.ReadDeniedException.class, () -> denied.getProperties(blob));
+        verify(repositoryService, never()).getResourceStreamHandle(any());
+        verify(repositoryService, never()).getStringContent(any(RepoPath.class));
+        verify(repositoryService, never()).getFileInfo(any());
+        verify(repositoryService, never()).getChildren(any());
+    }
+
+    @Test
+    void childrenTheCallerMayNotReadAreLeftOut() {
+        RepoPath folder = RepoPathFactory.create("images", "blobs");
+        ItemInfo open = mock(ItemInfo.class);
+        ItemInfo hidden = mock(ItemInfo.class);
+        RepoPath openPath = RepoPathFactory.create("images", "blobs/open");
+        RepoPath hiddenPath = RepoPathFactory.create("images", "blobs/hidden");
+        when(open.getRepoPath()).thenReturn(openPath);
+        when(hidden.getRepoPath()).thenReturn(hiddenPath);
+        when(repositoryService.getChildren(folder)).thenReturn(List.of(open, hidden));
+        PluginRepositories partial = new PluginRepositories(repositoryService, mock(PropertiesService.class),
+                path -> !path.equals(hiddenPath));
+        assertEquals(List.of(open), partial.getChildren(folder));
+    }
 
     @Test
     void findFileReportsSizeAndStoredSha256() {

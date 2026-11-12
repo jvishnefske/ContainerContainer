@@ -59,7 +59,8 @@ class PluginBindingsTest {
     @BeforeEach
     void setUp() {
         rig = new PluginTestRig(dir);
-        rig.extraBindings.put("repositories", new PluginRepositories(repositoryService, propertiesService));
+        rig.extraBindings.put("repositories",
+                new PluginRepositories(repositoryService, propertiesService, path -> true));
         rig.extraBindings.put("security", new PluginSecurity(securityService));
     }
 
@@ -124,14 +125,16 @@ class PluginBindingsTest {
     void getChildrenDelegatesToTheRepositoryService() {
         ItemInfo child = mock(ItemInfo.class);
         when(repositoryService.getChildren(path)).thenReturn(List.of(child));
-        assertEquals(List.of(child), new PluginRepositories(repositoryService, propertiesService).getChildren(path));
+        assertEquals(List.of(child),
+                new PluginRepositories(repositoryService, propertiesService, path -> true).getChildren(path));
     }
 
     @Test
     void stringContentAndAnonymousCheckDelegate() {
         when(repositoryService.getStringContent(path)).thenReturn("hello");
         when(securityService.isAnonymous()).thenReturn(true);
-        assertEquals("hello", new PluginRepositories(repositoryService, propertiesService).getStringContent(path));
+        assertEquals("hello",
+                new PluginRepositories(repositoryService, propertiesService, path -> true).getStringContent(path));
         assertEquals(true, new PluginSecurity(securityService).isAnonymous());
     }
 }

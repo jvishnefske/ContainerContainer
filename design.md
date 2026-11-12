@@ -328,9 +328,18 @@ service in `pkgtype/impl/` (`PluginApiGate`, `PluginApiService`,
       binary store), and `move` and `copy` within one repository (another
       repository is refused with 400). The binding runs as the requesting
       user, never as the system: writes keep their usual per-path permission
-      checks, reads do not check read permission, and the shell's
-      pre-check (A5) is the gate.
-      Evidence: `PluginRepositoriesApiTest#findFileReportsSizeAndStoredSha256`,
+      checks, and reads check the user's read permission on every path,
+      because permission targets can be scoped to paths inside a repository
+      while the shell's pre-check (A5) covers only the repository. A path the
+      user may not read looks absent (`findFile`, `openContent`, `exists`,
+      left out of `getChildren`) or is refused (`getContent`,
+      `getStringContent`, `getFileInfo`, `getProperties`), so a plugin cannot
+      serve, inspect or re-stream content its caller could not download.
+      Evidence: `PluginRepositoriesApiTest#unreadablePathsLookAbsentAndNeverReachTheContentService`,
+      `#childrenTheCallerMayNotReadAreLeftOut`,
+      `OciRegistryPluginTest#blobsAndManifestsUnderAnUnreadableNameAreUnknown`,
+      `#mountFromAnUnreadableNameInTheSameRepositoryFallsBackToAnUploadSession`,
+      `PluginRepositoriesApiTest#findFileReportsSizeAndStoredSha256`,
       `#findFileIsEmptyForMissingPathsAndFolders`,
       `#openContentStreamsWithTheFileSizeAndReleasesTheHandle`,
       `#deployHandsTheCallersStreamToTheUploadPath`,

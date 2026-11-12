@@ -9,6 +9,7 @@
 
 package org.artifactory.addon.plugin.groovy;
 
+import java.util.function.Predicate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.artifactory.addon.plugin.pkgtype.PluginApiHandler;
 import org.artifactory.addon.plugin.pkgtype.PluginApiMount;
@@ -69,6 +70,8 @@ class OciRegistryPluginTest {
     Path dir;
 
     private final InMemoryRepositoryService store = new InMemoryRepositoryService();
+    /** The caller's per-path read permission as the binding sees it; tests narrow it to model path-scoped targets. */
+    private Predicate<RepoPath> canRead = path -> true;
     private PluginTestRig rig;
     private PluginPackageType type;
     private PluginApiHandler api;
@@ -99,7 +102,8 @@ class OciRegistryPluginTest {
     @BeforeEach
     void setUp() throws Exception {
         rig = new PluginTestRig(dir);
-        rig.extraBindings.put("repositories", new PluginRepositories(store.service(), mock(PropertiesService.class)));
+        rig.extraBindings.put("repositories",
+                new PluginRepositories(store.service(), mock(PropertiesService.class), path -> canRead.test(path)));
         rig.extraBindings.put("security", new PluginSecurity(mock(SecurityService.class)));
         rig.write("oci-registry.groovy", Files.readString(PLUGIN, StandardCharsets.UTF_8));
         rig.reload();
@@ -494,6 +498,36 @@ class OciRegistryPluginTest {
         assertEquals(202, noFrom.status());
         assertFalse(store.has(REPO, "app/_blobs"));
         // nothingLeaksOutOfTheRepository() asserts that other-repo was never touched.
+    }
+
+    // --- path-scoped read permissions ------------------------------------------------------------------------------
+
+    private static Predicate<RepoPath> denyUnder(String repo, String prefix) {
+        return path -> !(path.getRepoKey().equals(repo)
+                && (path.getPath().equals(prefix) || path.getPath().startsWith(prefix + "/")));
+    }
+
+    @Test
+    void blobsAndManifestsUnderAnUnreadableNameAreUnknown() {
+        byte[] content = bytes("team b layer");
+        String d = pushBlob("team-b/app", content);
+        pushImage("team-b/app", "v1");
+        canRead = denyUnder(REPO, "team-b");
+        assertEquals("BLOB_UNKNOWN", call("GET", "v2/team-b/app/blobs/" + d).errorCode());
+        assertEquals(404, call("HEAD", "v2/team-b/app/blobs/" + d).status());
+        assertEquals(404, call("GET", "v2/team-b/app/manifests/v1").status());
+        assertEquals(404, call("GET", "v2/team-b/app/tags/list").status());
+    }
+
+    @Test
+    void mountFromAnUnreadableNameInTheSameRepositoryFallsBackToAnUploadSession() {
+        byte[] content = bytes("team b secret layer");
+        String d = pushBlob("team-b/base", content);
+        canRead = denyUnder(REPO, "team-b");
+        Resp r = call("POST", "v2/team-a/app/blobs/uploads/", "mount=" + d + "&from=" + REPO + "/team-b/base",
+                Map.of(), (byte[]) null);
+        assertEquals(202, r.status(), r.text());
+        assertFalse(store.has(REPO, "team-a/app/_blobs"));
     }
 
     // --- names and paths --------------------------------------------------------------------------------------------

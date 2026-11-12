@@ -20,6 +20,7 @@ import org.artifactory.addon.plugin.pkgtype.PluginPackageTypeRegistry;
 import org.artifactory.api.context.ContextHelper;
 import org.artifactory.api.properties.PropertiesService;
 import org.artifactory.api.repo.RepositoryService;
+import org.artifactory.api.security.AuthorizationService;
 import org.artifactory.api.security.SecurityService;
 import org.artifactory.api.security.UserGroupService;
 import org.artifactory.build.staging.BuildStagingStrategy;
@@ -87,14 +88,16 @@ public class GroovyPluginsAddon implements PluginsAddon, ContextReadinessListene
             ObjectProvider<SecurityService> securityService,
             ObjectProvider<UserGroupService> userGroupService,
             ObjectProvider<PluginPackageTypeRegistry> registry,
-            ObjectProvider<ArtifactoryExecutorService> executorService) {
+            ObjectProvider<ArtifactoryExecutorService> executorService,
+            ObjectProvider<AuthorizationService> authorizationService) {
         this(new GroovyPluginEngine(
                         GroovyPluginsAddon::homePluginsDir,
                         new GroovyPluginCompiler(GroovyPluginsAddon.class.getClassLoader(),
                                 HookFailureReporter.logging()),
                         new LazyRegistry(registry),
                         pluginName -> bindings(pluginName,
-                                new PluginRepositories(repositoryService.getObject(), propertiesService.getObject()),
+                                new PluginRepositories(repositoryService.getObject(), propertiesService.getObject(),
+                                        path -> authorizationService.getObject().canRead(path)),
                                 new PluginSecurity(securityService.getObject())),
                         HookFailureReporter.logging()),
                 () -> currentCaller(securityService.getObject(), userGroupService.getObject()),

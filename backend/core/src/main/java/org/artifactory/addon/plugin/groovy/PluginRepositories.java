@@ -30,6 +30,7 @@ import java.io.InputStream;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /**
  * The {@code repositories} binding of plugin scripts: a small subset of the papi {@code Repositories}
@@ -40,10 +41,12 @@ import java.util.Optional;
  * way the services always do: {@link #deploy} goes through the normal upload path (deploy permission, and delete
  * permission to overwrite an existing file), {@link #delete} needs delete permission, and {@link #move} and
  * {@link #copy} move or copy only what the user may read and write (a move also needs delete on the source).
- * Reads do not check read permission: {@link #getContent}, {@link #openContent}, {@link #getFileInfo},
- * {@link #findFile}, {@link #exists} and {@link #getChildren} see the repository as stored, because plugins are
- * installed by administrators. For the HTTP API the gate is the request shell, which checks the method's
- * permission on the repository before any plugin code runs; these calls add the per-path write checks above.
+ * Reads enforce the same user's read permission on each path, because permission targets can be scoped to paths
+ * inside a repository while the HTTP API shell checks only the repository: a path the user may not read looks
+ * absent to {@link #findFile}, {@link #openContent} and {@link #exists}, is left out of {@link #getChildren}, and
+ * makes {@link #getFileInfo}, {@link #getContent}, {@link #getStringContent} and {@link #getProperties} throw
+ * {@link ReadDeniedException}. A plugin therefore never serves, inspects or re-streams content its caller could
+ * not download directly. Hooks run as the system (for example asynchronous index handlers) read everything.
  *
  * <p><b>Memory.</b> {@link #deploy} streams its input into the binary store; {@link #getContent} and
  * {@link #openContent} stream; only {@link #getStringContent} reads a whole file into memory and is meant for
@@ -57,15 +60,37 @@ public final class PluginRepositories {
 
     private final RepositoryService repositoryService;
     private final PropertiesService propertiesService;
+    private final Predicate<RepoPath> canRead;
 
-    public PluginRepositories(RepositoryService repositoryService, PropertiesService propertiesService) {
+    /**
+     * @param canRead whether the user running the current hook may read a path; in production
+     *                {@code AuthorizationService::canRead}. There is deliberately no constructor without it, so a
+     *                binding can never be built that skips read checks by accident.
+     */
+    public PluginRepositories(RepositoryService repositoryService, PropertiesService propertiesService,
+            Predicate<RepoPath> canRead) {
         this.repositoryService = Objects.requireNonNull(repositoryService, "repositoryService");
         this.propertiesService = Objects.requireNonNull(propertiesService, "propertiesService");
+        this.canRead = Objects.requireNonNull(canRead, "canRead");
     }
 
-    /** @return the file's info; throws when the path is missing or is a folder */
+    /** Thrown by reads that cannot return "absent" when the current user may not read the path. */
+    public static final class ReadDeniedException extends RuntimeException {
+        public ReadDeniedException(RepoPath repoPath) {
+            super("Read permission denied for " + repoPath);
+        }
+    }
+
+    private RepoPath readable(RepoPath repoPath) {
+        if (!canRead.test(repoPath)) {
+            throw new ReadDeniedException(repoPath);
+        }
+        return repoPath;
+    }
+
+    /** @return the file's info; throws when the path is missing, is a folder, or may not be read */
     public FileInfo getFileInfo(RepoPath repoPath) {
-        return repositoryService.getFileInfo(repoPath);
+        return repositoryService.getFileInfo(readable(repoPath));
     }
 
     /**
@@ -87,9 +112,9 @@ public final class PluginRepositories {
         }
     }
 
-    /** @return the file at {@code repoPath}, or empty when nothing is there or it is a folder */
+    /** @return the file at {@code repoPath}, or empty when nothing is there, it is a folder, or it may not be read */
     public Optional<StoredFile> findFile(RepoPath repoPath) {
-        if (!repositoryService.exists(repoPath)) {
+        if (!exists(repoPath)) {
             return Optional.empty();
         }
         FileInfo info;
@@ -105,9 +130,9 @@ public final class PluginRepositories {
                 info.getMimeType()));
     }
 
-    /** @return a stream handle over the file's content; the caller closes it */
+    /** @return a stream handle over the file's content; the caller closes it. Throws when it may not be read */
     public ResourceStreamHandle getContent(RepoPath repoPath) {
-        return repositoryService.getResourceStreamHandle(repoPath);
+        return repositoryService.getResourceStreamHandle(readable(repoPath));
     }
 
     /**
@@ -115,7 +140,7 @@ public final class PluginRepositories {
      * handle when closed, which the HTTP API shell always does. Use it as {@code [status: 200, body: content]} or
      * {@code PluginApiResponse.status(200).withBody(content)}.
      *
-     * @return the body, or empty when there is no file at {@code repoPath}
+     * @return the body, or empty when there is no file at {@code repoPath} or it may not be read
      */
     public Optional<PluginApiResponse.Body.Stream> openContent(RepoPath repoPath) {
         if (findFile(repoPath).isEmpty()) {
@@ -126,9 +151,9 @@ public final class PluginRepositories {
                 handle.getSize()));
     }
 
-    /** @return the file's content decoded as a string */
+    /** @return the file's content decoded as a string; throws when it may not be read */
     public String getStringContent(RepoPath repoPath) {
-        return repositoryService.getStringContent(repoPath);
+        return repositoryService.getStringContent(readable(repoPath));
     }
 
     /**
@@ -177,21 +202,26 @@ public final class PluginRepositories {
     }
 
     /**
-     * @return the direct children (files and folders) of the folder at {@code repoPath}; empty for a file or a
-     * missing path
+     * @return the direct children (files and folders) of the folder at {@code repoPath} that the current user may
+     * read; empty for a file, a missing path, or a folder that may not be read
      */
     public List<ItemInfo> getChildren(RepoPath repoPath) {
-        return repositoryService.getChildren(repoPath);
+        if (!canRead.test(repoPath)) {
+            return List.of();
+        }
+        return repositoryService.getChildren(repoPath).stream()
+                .filter(child -> canRead.test(child.getRepoPath()))
+                .toList();
     }
 
-    /** @return whether an item exists at {@code repoPath} */
+    /** @return whether an item exists at {@code repoPath} and the current user may read it */
     public boolean exists(RepoPath repoPath) {
-        return repositoryService.exists(repoPath);
+        return canRead.test(repoPath) && repositoryService.exists(repoPath);
     }
 
-    /** @return the item's properties */
+    /** @return the item's properties; throws when it may not be read */
     public Properties getProperties(RepoPath repoPath) {
-        return propertiesService.getProperties(repoPath);
+        return propertiesService.getProperties(readable(repoPath));
     }
 
     /**
