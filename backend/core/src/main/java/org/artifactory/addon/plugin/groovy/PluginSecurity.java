@@ -49,6 +49,13 @@ import java.util.function.Supplier;
  */
 public final class PluginSecurity {
 
+    /**
+     * Seconds kept between a minted token's expiry and an expiry cap. {@code now} is the current time floored to a
+     * whole second and Access stamps the token's issue time at its own, possibly later, second, so without the margin
+     * {@code iat + lifetime} could land up to a second after the cap.
+     */
+    public static final long EXPIRY_MARGIN_SECONDS = 1;
+
     /** Longest lifetime of a token minted by {@link #createAccessToken(long)}: one hour. */
     public static final long MAX_TOKEN_SECONDS = 3600;
 
@@ -225,15 +232,16 @@ public final class PluginSecurity {
      * @param notAfter    the latest allowed expiry, epoch seconds
      * @param realmExpiry the expiry of the credential that authenticated the request, if any
      * @return the lifetime in seconds: the minimum of {@code requested}, {@link #MAX_TOKEN_SECONDS},
-     *         {@code notAfter - now} and {@code realmExpiry - now}; empty when that is not positive
+     *         {@code notAfter - now - EXPIRY_MARGIN_SECONDS} and {@code realmExpiry - now - EXPIRY_MARGIN_SECONDS};
+     *         empty when that is not positive
      */
     public static OptionalLong tokenLifetime(long requested, long now, long notAfter, OptionalLong realmExpiry) {
         long lifetime = Math.min(requested, MAX_TOKEN_SECONDS);
         if (notAfter != Long.MAX_VALUE) {
-            lifetime = Math.min(lifetime, notAfter - now);
+            lifetime = Math.min(lifetime, notAfter - now - EXPIRY_MARGIN_SECONDS);
         }
         if (realmExpiry.isPresent()) {
-            lifetime = Math.min(lifetime, realmExpiry.getAsLong() - now);
+            lifetime = Math.min(lifetime, realmExpiry.getAsLong() - now - EXPIRY_MARGIN_SECONDS);
         }
         return lifetime > 0 ? OptionalLong.of(lifetime) : OptionalLong.empty();
     }

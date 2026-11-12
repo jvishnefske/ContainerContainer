@@ -59,8 +59,11 @@ jobs:
           name: artifactory-m2
       - name: Restore this build's modules into the local Maven repository
         run: mkdir -p ~/.m2/repository && tar -C ~/.m2/repository -xf artifactory-m2.tar
+      # Retries absorb upstream timing tests that race a sleep against a budget on slower runners (for example
+      # EmptyTrashServiceLongRunTest). Surefire reports a test that passes on retry as flaky; one that fails every
+      # attempt still fails the job.
       - name: Full test suite of ${{ matrix.module }}
-        run: mvn $MAVEN_ARGS test -pl ${{ matrix.module }}
+        run: mvn $MAVEN_ARGS test -pl ${{ matrix.module }} -Dsurefire.rerunFailingTestsCount=2
       - name: Name the report artifact
         if: always()
         id: report

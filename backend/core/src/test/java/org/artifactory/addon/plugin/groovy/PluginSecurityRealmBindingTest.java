@@ -107,8 +107,8 @@ class PluginSecurityRealmBindingTest {
                 run("mint", Map.of("s", 999_999)).getMessage());
         current = new PluginRealmAuthentication(new SimpleUser(new UserInfoBuilder("bob").build()), "x", "r",
                 OptionalLong.of(NOW + 120), null);
-        assertEquals("tok-bob Bearer 120 applied-permissions/user r", run("mint", Map.of("s", 600)).getMessage());
-        assertEquals(List.of("bob:3600", "bob:120"), minted);
+        assertEquals("tok-bob Bearer 119 applied-permissions/user r", run("mint", Map.of("s", 600)).getMessage());
+        assertEquals(List.of("bob:3600", "bob:119"), minted);
     }
 
     @Test
@@ -150,8 +150,11 @@ class PluginSecurityRealmBindingTest {
     void lifetimeRule() {
         assertEquals(OptionalLong.of(3600), PluginSecurity.tokenLifetime(10_000, NOW, Long.MAX_VALUE,
                 OptionalLong.empty()));
-        assertEquals(OptionalLong.of(30), PluginSecurity.tokenLifetime(60, NOW, NOW + 30, OptionalLong.empty()));
-        assertEquals(OptionalLong.of(10), PluginSecurity.tokenLifetime(60, NOW, NOW + 30, OptionalLong.of(NOW + 10)));
+        assertEquals(OptionalLong.of(29), PluginSecurity.tokenLifetime(60, NOW, NOW + 30, OptionalLong.empty()));
+        assertEquals(OptionalLong.of(9), PluginSecurity.tokenLifetime(60, NOW, NOW + 30, OptionalLong.of(NOW + 10)));
+        // the one-second margin: a credential expiring next second leaves nothing to mint
+        assertEquals(OptionalLong.empty(), PluginSecurity.tokenLifetime(60, NOW, Long.MAX_VALUE,
+                OptionalLong.of(NOW + 1)));
         assertEquals(OptionalLong.empty(), PluginSecurity.tokenLifetime(60, NOW, Long.MAX_VALUE,
                 OptionalLong.of(NOW - 1)));
         assertEquals(OptionalLong.empty(), PluginSecurity.tokenLifetime(-5, NOW, Long.MAX_VALUE,
