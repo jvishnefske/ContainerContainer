@@ -37,16 +37,18 @@ public final class PluginSnapshot {
     private final List<LoadedPlugin> loaded;
     private final Map<Class<? extends PluginAction>, List<PluginHook>> hooksByType;
     private final Map<String, PluginExecution> executionsByName;
+    private final List<PluginRealm> realms;
 
     /**
-     * @param results load results in load order; when two loaded plugins declare the same execution name
-     *                the earlier one wins (the engine rejects such duplicates before building a snapshot)
+     * @param results load results in load order; when two loaded plugins declare the same execution or realm
+     *                name the earlier one wins (the engine rejects such duplicates before building a snapshot)
      */
     public PluginSnapshot(List<PluginLoadResult> results) {
         this.results = List.copyOf(results);
         List<LoadedPlugin> plugins = new ArrayList<>();
         Map<Class<? extends PluginAction>, List<PluginHook>> hooks = new HashMap<>();
         Map<String, PluginExecution> executions = new LinkedHashMap<>();
+        Map<String, PluginRealm> realmsByName = new LinkedHashMap<>();
         for (PluginLoadResult result : this.results) {
             if (result instanceof PluginLoadResult.Loaded loadedResult) {
                 LoadedPlugin plugin = loadedResult.plugin();
@@ -57,6 +59,9 @@ public final class PluginSnapshot {
                 for (PluginExecution execution : plugin.executions()) {
                     executions.putIfAbsent(execution.name(), execution);
                 }
+                for (PluginRealm realm : plugin.realms()) {
+                    realmsByName.putIfAbsent(realm.name(), realm);
+                }
             }
         }
         this.loaded = List.copyOf(plugins);
@@ -64,6 +69,7 @@ public final class PluginSnapshot {
         hooks.forEach((type, list) -> frozen.put(type, List.copyOf(list)));
         this.hooksByType = Map.copyOf(frozen);
         this.executionsByName = Collections.unmodifiableMap(executions);
+        this.realms = List.copyOf(realmsByName.values());
     }
 
     /** @return the snapshot with no plugins, the state before the first load */
@@ -89,6 +95,14 @@ public final class PluginSnapshot {
     /** @return the execution named {@code name}, if a loaded plugin declares it */
     public Optional<PluginExecution> execution(String name) {
         return Optional.ofNullable(executionsByName.get(name));
+    }
+
+    /**
+     * @return the realms of loaded plugins in load order (plugin file name, then declaration order); when two
+     *         plugins declare the same realm name the earlier one wins (the engine rejects such duplicates)
+     */
+    public List<PluginRealm> realms() {
+        return realms;
     }
 
     /** @return all executions of loaded plugins, in load order */
