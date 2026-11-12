@@ -26,7 +26,8 @@ import java.util.concurrent.Executor;
 /**
  * Test fixture: a plugins directory, a fake registry, a recording failure reporter, and an engine and
  * addon wired to them. Scripts see the production bindings ({@code log}, {@code repositories},
- * {@code security}) plus a {@code calls} list they can append to so tests observe hook invocations.
+ * {@code security}, {@code realm}, {@code pluginDir}) plus a {@code calls} list they can append to so tests observe
+ * hook invocations, and every other entry of {@code extraBindings}.
  */
 final class PluginTestRig {
 
@@ -54,6 +55,7 @@ final class PluginTestRig {
                     Map<String, Object> bindings = GroovyPluginsAddon.bindings(name,
                             extraBindings.get("repositories"), extraBindings.get("security"));
                     bindings.put("calls", calls);
+                    extraBindings.forEach(bindings::putIfAbsent);
                     return bindings;
                 },
                 reporter);
