@@ -502,6 +502,68 @@ abandoned upload sessions, remote and virtual repositories of the type,
 token authentication (Basic only), `/v2/_catalog`, and automatic mounting
 without `from`.
 
+## OIDC token federation with login.example.com
+
+The identity provider is Auth0 on the custom domain `login.example.com`
+(issuer `https://login.example.com/`, JWKS at
+`https://login.example.com/.well-known/jwks.json`, two RS256 keys as of
+2026-11-11). The public discovery and key documents are kept as test fixtures
+under `backend/core/src/test/resources/oidc/login.example.com/`. OSS has no
+OAuth/OIDC login (`OAuthHandlerDefaultImpl` is a stub) and no token exchange;
+JFrog Access tokens already work as Bearer or Basic password. This phase lets
+callers holding an Auth0 JWT access token use Artifactory; browser SSO and the
+registry Bearer challenge come later.
+
+Auth0 facts the design depends on: JWT access tokens are issued only when the
+client asks for an API `audience`, otherwise the token is opaque and there is
+no introspection endpoint, so only JWTs whose `aud` names the configured
+Artifactory API are accepted. Discovery advertises HS256 for ID tokens, so the
+accepted algorithms are pinned. Groups are not a standard claim and arrive only
+as a namespaced custom claim added by an Auth0 Action. Machine tokens from the
+client-credentials grant have `sub` `<client-id>@clients` and `gty`
+`client-credentials`.
+
+- [ ] I1. A trusted issuer is configured with its exact issuer string
+      (trailing slash included), the expected audience, the accepted
+      algorithms (RS256 and PS256 only; `none`, HS* and anything else are
+      rejected whatever the token or discovery says), the maximum accepted
+      token lifetime, and claim-mapping rules. Configuration that would accept
+      tokens without an audience check, or with no mapping rules, is refused.
+- [ ] I2. Signing keys come only from the configured issuer's `jwks_uri`, over
+      HTTPS, on the issuer's host. Keys are cached; an unknown `kid` triggers at
+      most one refresh per configured interval, so rotation is followed and a
+      flood of forged `kid`s cannot hammer the provider. A provider outage
+      keeps serving cached keys until they expire and then fails closed.
+- [ ] I3. A token is accepted only if its signature verifies with a key of the
+      matching `kid` and `alg`, `iss` equals the configured issuer exactly,
+      `aud` contains the configured audience, `exp` is in the future, `nbf` and
+      `iat` are not in the future (bounded clock skew), and `exp - iat` does not
+      exceed the configured maximum. Every rejection names its reason in the
+      debug log and never echoes the token.
+- [ ] I4. Claim mapping is explicit and ordered: a rule matches on `sub`
+      (exact or prefix, e.g. `auth0|` users or `<client-id>@clients` machines),
+      optionally `gty` and `azp`, and maps to one existing Artifactory user, or
+      to a just-in-time user named from `sub` with groups taken only from a
+      configured namespaced claim and only for groups that already exist. No
+      rule maps to the admin flag; tokens that match no rule are rejected.
+      Email is never used as an identity unless a rule names it and
+      `email_verified` is true.
+- [ ] I5. `POST /artifactory/api/oidc/token` exchanges a valid Auth0 JWT for a
+      short-lived Artifactory access token (lifetime no longer than the
+      incoming token's remaining lifetime and a configured cap) for the mapped
+      user, through Access.
+- [ ] I6. An Auth0 JWT presented directly (Bearer header, or as the Basic
+      password so `docker login` and `imagePullSecrets` work) authenticates as
+      the mapped user for that request, without creating a stored token.
+- [ ] I7. With no issuer configured, authentication behaves exactly as stock
+      OSS.
+- [ ] I8. Tested offline with an in-process issuer that signs tokens the way
+      Auth0 does (custom-domain issuer with trailing slash, `@clients`
+      machine subjects, namespaced group claim, rotated keys), plus a parsing
+      test of the captured `login.example.com` documents, and live against a
+      throwaway Artifactory container with that local issuer. The real tenant
+      is not called by tests.
+
 ## Out of scope for the first iteration
 
 - Remote and virtual repositories of plugin types (the `HttpRepoFactory` hook
