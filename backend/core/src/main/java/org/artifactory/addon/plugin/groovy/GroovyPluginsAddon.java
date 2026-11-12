@@ -23,20 +23,26 @@ import org.artifactory.api.repo.RepositoryService;
 import org.artifactory.api.security.AuthorizationService;
 import org.artifactory.api.security.SecurityService;
 import org.artifactory.api.security.UserGroupService;
+import org.artifactory.api.security.access.CreatedTokenInfo;
+import org.artifactory.api.security.access.UserTokenSpec;
 import org.artifactory.build.staging.BuildStagingStrategy;
 import org.artifactory.request.Request;
 import org.artifactory.resource.ResourceStreamHandle;
 import org.artifactory.sapi.common.ExportSettings;
 import org.artifactory.sapi.common.ImportSettings;
 import org.artifactory.schedule.ArtifactoryExecutorService;
+import org.artifactory.security.AuthenticationHelper;
 import org.artifactory.security.UserGroupInfo;
 import org.artifactory.security.UserInfo;
+import org.artifactory.security.access.AccessService;
 import org.artifactory.spring.ContextReadinessListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.Nonnull;
@@ -67,6 +73,9 @@ import java.util.function.Supplier;
  * registry is optional so the engine still starts in a build without it; plugins that declare package types
  * then fail to load with an explanatory status.
  *
+ * <p>Plugin realms are served by {@link PluginRealmAuthenticationProvider}, which reads them from the current
+ * snapshot; {@link #executeAdditiveRealmPlugins} applies additive realms through it.
+ *
  * <p>Deploying, downloading and deleting plugin files over REST, staging strategies and build promotions
  * remain unsupported and throw {@link UnsupportedOperationException} as in stock OSS.
  */
@@ -80,6 +89,7 @@ public class GroovyPluginsAddon implements PluginsAddon, ContextReadinessListene
     private final GroovyPluginEngine engine;
     private final Supplier<Caller> caller;
     private final Executor asyncExecutor;
+    private final Supplier<AdditiveRealms> additiveRealms;
 
     /** Spring constructor. */
     @Autowired
@@ -89,7 +99,9 @@ public class GroovyPluginsAddon implements PluginsAddon, ContextReadinessListene
             ObjectProvider<UserGroupService> userGroupService,
             ObjectProvider<PluginPackageTypeRegistry> registry,
             ObjectProvider<ArtifactoryExecutorService> executorService,
-            ObjectProvider<AuthorizationService> authorizationService) {
+            ObjectProvider<AuthorizationService> authorizationService,
+            ObjectProvider<AccessService> accessService,
+            ObjectProvider<PluginRealmAuthenticationProvider> realmProvider) {
         this(new GroovyPluginEngine(
                         GroovyPluginsAddon::homePluginsDir,
                         new GroovyPluginCompiler(GroovyPluginsAddon.class.getClassLoader(),
@@ -98,7 +110,11 @@ public class GroovyPluginsAddon implements PluginsAddon, ContextReadinessListene
                         pluginName -> bindings(pluginName,
                                 new PluginRepositories(repositoryService.getObject(), propertiesService.getObject(),
                                         path -> authorizationService.getObject().canRead(path)),
-                                new PluginSecurity(securityService.getObject())),
+                                new PluginSecurity(securityService.getObject(),
+                                        name -> RealmDirectory.over(userGroupService.getObject()).findUser(name),
+                                        accessTokenMinter(pluginName, accessService),
+                                        AuthenticationHelper::getAuthentication,
+                                        () -> System.currentTimeMillis() / 1000)),
                         HookFailureReporter.logging()),
                 () -> currentCaller(securityService.getObject(), userGroupService.getObject()),
                 command -> {
@@ -108,6 +124,10 @@ public class GroovyPluginsAddon implements PluginsAddon, ContextReadinessListene
                     } else {
                         executor.execute(command);
                     }
+                },
+                () -> {
+                    PluginRealmAuthenticationProvider provider = realmProvider.getIfAvailable();
+                    return provider == null ? AdditiveRealms.NONE : provider;
                 });
     }
 
@@ -118,22 +138,73 @@ public class GroovyPluginsAddon implements PluginsAddon, ContextReadinessListene
      * @param asyncExecutor runs asynchronous executions
      */
     public GroovyPluginsAddon(GroovyPluginEngine engine, Supplier<Caller> caller, Executor asyncExecutor) {
+        this(engine, caller, asyncExecutor, () -> AdditiveRealms.NONE);
+    }
+
+    /**
+     * Wires the addon to an explicit engine and additive realm handler; used by tests.
+     *
+     * @param additiveRealms supplies the handler {@link #executeAdditiveRealmPlugins} hands the current
+     *                       authentication to when additive realms are loaded
+     */
+    public GroovyPluginsAddon(GroovyPluginEngine engine, Supplier<Caller> caller, Executor asyncExecutor,
+            Supplier<AdditiveRealms> additiveRealms) {
         this.engine = engine;
         this.caller = caller;
         this.asyncExecutor = asyncExecutor;
+        this.additiveRealms = additiveRealms;
+    }
+
+    /**
+     * Applies additive realms to an authentication another provider made; implemented by
+     * {@link PluginRealmAuthenticationProvider}.
+     */
+    @FunctionalInterface
+    public interface AdditiveRealms {
+
+        /** Changes nothing. */
+        AdditiveRealms NONE = authentication -> authentication;
+
+        /** @return {@code authentication}, or a copy with the groups additive realms add */
+        Authentication applyAdditive(Authentication authentication);
     }
 
     /**
      * Builds the binding variables of a plugin script. Pure.
      *
-     * @return {@code log}, {@code repositories} and {@code security}
+     * @return {@code log}, {@code repositories}, {@code security} and {@code realm} ({@link RealmResults}); the
+     *         engine adds {@code pluginDir}
      */
     public static Map<String, Object> bindings(String pluginName, Object repositories, Object security) {
         Map<String, Object> bindings = new HashMap<>();
         bindings.put("log", LoggerFactory.getLogger(PLUGIN_LOGGER_PREFIX + pluginName));
         bindings.put("repositories", repositories);
         bindings.put("security", security);
+        bindings.put("realm", RealmResults.INSTANCE);
         return bindings;
+    }
+
+    /**
+     * Mints tokens through Access for the {@code security} binding: scope {@code applied-permissions/user}, not
+     * refreshable, created with the current user's own rights (no long-lived or scope assertion is skipped).
+     */
+    static PluginSecurity.TokenMinter accessTokenMinter(String pluginName, ObjectProvider<AccessService> access) {
+        return (username, expiresInSeconds) -> {
+            UserTokenSpec spec = UserTokenSpec.create(username)
+                    .expiresIn(expiresInSeconds)
+                    .refreshable(false)
+                    .scope(List.of(PluginSecurity.TOKEN_SCOPE))
+                    .description("Minted by user plugin '" + pluginName + "'");
+            CreatedTokenInfo created = access.getObject().createToken(spec);
+            Long expiresIn = created.getExpiresIn();
+            return new PluginSecurity.Minted(created.getTokenValue(),
+                    expiresIn == null ? expiresInSeconds : expiresIn);
+        };
+    }
+
+    /** @return the realms of the current plugin generation, in load order */
+    public List<PluginRealm> realms() {
+        return engine.snapshot().realms();
     }
 
     /** @return the engine, for collaborators in this package and tests */
@@ -265,9 +336,24 @@ public class GroovyPluginsAddon implements PluginsAddon, ContextReadinessListene
         throw new UnsupportedOperationException("Deleting user plugins over REST is not supported.");
     }
 
+    /**
+     * Runs additive realms on the authentication of the current request (called by the authentication filter chain
+     * and the UI login once a provider authenticated the request). With no additive realm loaded it returns at once
+     * and touches nothing (P6). Otherwise the security context's authentication is replaced by the copy additive
+     * realms add groups to; see {@link PluginRealmAuthenticator#additive}.
+     */
     @Override
     public void executeAdditiveRealmPlugins(Request servletRequest) {
-        // Realms are out of scope for this engine.
+        boolean anyAdditive = engine.snapshot().realms().stream()
+                .anyMatch(realm -> realm.policy() == PluginRealm.Policy.ADDITIVE);
+        if (!anyAdditive) {
+            return;
+        }
+        Authentication current = SecurityContextHolder.getContext().getAuthentication();
+        Authentication updated = additiveRealms.get().applyAdditive(current);
+        if (updated != current) {
+            SecurityContextHolder.getContext().setAuthentication(updated);
+        }
     }
 
     @Override

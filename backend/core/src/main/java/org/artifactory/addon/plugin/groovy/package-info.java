@@ -35,5 +35,15 @@
  * <p>{@code packageType} blocks are built by {@link org.artifactory.addon.plugin.groovy.PackageTypeDelegate},
  * whose {@code api} keyword adapts a closure to the HTTP API contract; the closure's return value is converted by
  * {@link org.artifactory.addon.plugin.groovy.ApiResponseConversion} and the adapter fails closed with a 500.
+ *
+ * <p>{@code realms} blocks declare authentication realms
+ * ({@link org.artifactory.addon.plugin.groovy.PluginRealm}) whose closures answer with a
+ * {@link org.artifactory.addon.plugin.groovy.RealmResult}; anything else is "not mine". They are served by
+ * {@link org.artifactory.addon.plugin.groovy.PluginRealmAuthenticationProvider}, which sits in the provider chain and
+ * is offered non-Access JWTs by {@code PasswordDecryptingManager}; what a result may grant (never admin, only
+ * existing non-admin groups, just-in-time users in {@code plugin:<realm>}) is decided in Java by
+ * {@link org.artifactory.addon.plugin.groovy.RealmGrantPolicy}. The {@code security} binding
+ * ({@link org.artifactory.addon.plugin.groovy.PluginSecurity}) adds user lookup and token minting for realm and
+ * execution code.
  */
 package org.artifactory.addon.plugin.groovy;

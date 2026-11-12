@@ -43,6 +43,7 @@ import org.artifactory.common.ConstantValues;
 import org.artifactory.common.home.ArtifactoryHome;
 import org.artifactory.common.property.ArtifactorySystemProperties;
 import org.artifactory.security.AccessLogger;
+import org.artifactory.security.ExpiringAuthentication;
 import org.artifactory.security.HttpAuthenticationDetailsSource;
 import org.artifactory.security.UserInfo;
 import org.artifactory.util.HttpUtils;
@@ -379,12 +380,19 @@ public class AccessFilter extends DelayedFilterBase implements SecurityListener 
 
     /**
      * Checks the authentication state and verifies the filter doesn't require re-authentication.
+     * An {@link ExpiringAuthentication} that expired or was revoked always requires it, so neither the session nor the
+     * header cache reuses it.
      */
     private boolean reAuthenticationRequired(HttpServletRequest request, Authentication authentication,
             ArtifactoryFilterHolder filterHolder) {
         // Not authenticated so not required to redo ;-)
         if (authentication == null || !authentication.isAuthenticated()) {
             return false;
+        }
+
+        // Fork: an authentication from a plugin realm is never reused past its JWT expiry or after a plugin reload
+        if (ExpiringAuthentication.isUnusable(authentication, System.currentTimeMillis() / 1000)) {
+            return true;
         }
 
         // If the user object changed in the DB: new groups or became admin since last login,

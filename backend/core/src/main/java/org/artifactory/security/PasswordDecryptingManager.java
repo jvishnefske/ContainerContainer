@@ -52,9 +52,14 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 
+import java.util.Optional;
+
 /**
  * This authentication manager will decrypted any encrypted passwords according to the password and encryption policy
  * and delegate the authentication to a standard authentication provider.
+ * <p>
+ * Before any of that, credentials that are JWTs not issued by Access are offered to plugin realms through the
+ * {@link PluginRealmGateway} (fork addition); with no plugin realm loaded nothing changes.
  *
  * @author Yossi Shaul
  * @deprecated since artifactory shouldn't encrypt private/public keys anymore (access does)
@@ -66,6 +71,7 @@ public class PasswordDecryptingManager implements AuthenticationManager {
     private AuthenticationManager delegate;
     private PropsAuthenticationProvider delegateProps;
     private AccessTokenAuthenticationProvider delegateAccessToken;
+    private PluginRealmGateway pluginRealms = PluginRealmGateway.NONE;
 
     private final SecurityService securityService;
     private final CentralConfigService centralConfigService;
@@ -123,6 +129,13 @@ public class PasswordDecryptingManager implements AuthenticationManager {
             username = principal.toString();
         }
         boolean isApiKey = CryptoHelper.isApiKey(password);
+
+        // Plugin realms see JWTs Access did not issue before the token branches below claim every JWT as an Access
+        // token; with no realm loaded the gateway claims nothing and the stock path runs unchanged.
+        Optional<Authentication> claimed = pluginRealms.claim(authentication);
+        if (claimed.isPresent()) {
+            return claimed.get();
+        }
 
         if (accessService.shouldDelegateTokenOrApiKeyAuthenticationToAccess()) {
             if (isAccessTokenAuthentication(authentication, password)) {
@@ -285,5 +298,14 @@ public class PasswordDecryptingManager implements AuthenticationManager {
 
     public void setDelegateAccessToken(AccessTokenAuthenticationProvider delegateAccessToken) {
         this.delegateAccessToken = delegateAccessToken;
+    }
+
+    /**
+     * Sets the plugin realm gateway (the Groovy plugin engine's realm provider). Without one, or with no realm
+     * loaded, authentication is exactly the stock path.
+     */
+    @Autowired(required = false)
+    public void setPluginRealms(PluginRealmGateway pluginRealms) {
+        this.pluginRealms = pluginRealms == null ? PluginRealmGateway.NONE : pluginRealms;
     }
 }

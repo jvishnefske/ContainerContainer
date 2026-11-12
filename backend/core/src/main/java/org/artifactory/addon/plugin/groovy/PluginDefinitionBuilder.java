@@ -32,6 +32,7 @@ public final class PluginDefinitionBuilder {
     private final List<PluginHook> hooks = new ArrayList<>();
     private final List<PluginExecution> executions = new ArrayList<>();
     private final List<PluginPackageType> packageTypes = new ArrayList<>();
+    private final List<PluginRealm> realms = new ArrayList<>();
     private boolean sealed;
 
     /**
@@ -73,10 +74,20 @@ public final class PluginDefinitionBuilder {
         packageTypes.add(type);
     }
 
+    void addRealm(PluginRealm realm) {
+        checkOpen();
+        for (PluginRealm existing : realms) {
+            if (existing.name().equals(realm.name())) {
+                throw new IllegalArgumentException("Realm '" + realm.name() + "' is declared twice");
+            }
+        }
+        realms.add(realm);
+    }
+
     /** Seals the builder and returns what the script declared. */
     public LoadedPlugin build() {
         sealed = true;
-        return new LoadedPlugin(pluginName, fileName, hooks, executions, packageTypes);
+        return new LoadedPlugin(pluginName, fileName, hooks, executions, packageTypes, realms);
     }
 
     private void checkOpen() {

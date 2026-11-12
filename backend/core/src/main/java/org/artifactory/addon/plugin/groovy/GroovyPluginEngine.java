@@ -43,8 +43,15 @@ import java.util.function.Supplier;
  * types the registry rejects is recorded as failed with the registry's reasons and contributes no hooks.
  * The registry and the snapshot are separate objects, so between the two updates a request may briefly see
  * new package types with old hooks.
+ *
+ * <p>Execution and realm names are unique across plugins: a plugin declaring a name an earlier one (by file name)
+ * declared fails to load. Every script gets a {@code pluginDir} binding with the plugins directory. Executions run
+ * in the {@link PluginCallScope.Kind#EXECUTION} scope.
  */
 public final class GroovyPluginEngine {
+
+    /** Binding variable holding the plugins directory, a {@link Path}. */
+    public static final String PLUGIN_DIR_BINDING = "pluginDir";
 
     private final Supplier<Path> pluginsDir;
     private final GroovyPluginCompiler compiler;
@@ -80,13 +87,15 @@ public final class GroovyPluginEngine {
      * per-file problems are recorded in the returned snapshot's results.
      */
     public synchronized PluginSnapshot reload() {
-        PluginSources.Scan scan = PluginSources.scan(pluginsDir.get());
+        Path dir = pluginsDir.get();
+        PluginSources.Scan scan = PluginSources.scan(dir);
         List<PluginLoadResult> results = new ArrayList<>(scan.failures());
         for (PluginSource source : scan.sources()) {
-            results.add(compiler.compile(source, bindingsFor.apply(source.name())));
+            results.add(compiler.compile(source, withPluginDir(bindingsFor.apply(source.name()), dir)));
         }
         results.sort((a, b) -> a.fileName().compareTo(b.fileName()));
-        List<PluginLoadResult> registered = register(rejectDuplicateExecutions(results), current.get());
+        List<PluginLoadResult> unique = rejectDuplicateRealms(rejectDuplicateExecutions(results));
+        List<PluginLoadResult> registered = register(unique, current.get());
         PluginSnapshot next = new PluginSnapshot(registered);
         current.set(next);
         return next;
@@ -164,7 +173,9 @@ public final class GroovyPluginEngine {
         }
         PluginExecution execution = found.get();
         ResponseCtx ctx = new ResponseCtx();
-        switch (HookInvoker.invoke(execution.closure(), ctx, params, body)) {
+        HookOutcome outcome = PluginCallScope.run(PluginCallScope.Kind.EXECUTION,
+                () -> HookInvoker.invoke(execution.closure(), ctx, params, body));
+        switch (outcome) {
             case HookOutcome.Completed completed -> {
                 if (ctx.getStatus() == ResponseCtx.UNSET_STATUS) {
                     ctx.setStatus(200);
@@ -182,6 +193,46 @@ public final class GroovyPluginEngine {
             }
         }
         return ctx;
+    }
+
+    /**
+     * Adds the {@code pluginDir} binding, the plugins directory the script was read from, so a plugin can read
+     * configuration files placed beside it. A binding the caller already set is kept. Pure.
+     */
+    static Map<String, Object> withPluginDir(Map<String, Object> bindings, Path dir) {
+        Map<String, Object> result = new HashMap<>(bindings);
+        if (dir != null) {
+            result.putIfAbsent(PLUGIN_DIR_BINDING, dir);
+        }
+        return result;
+    }
+
+    /**
+     * Fails every loaded plugin that declares a realm name an earlier loaded plugin already declared, so realm
+     * names stay unique and the user realm {@code plugin:<name>} identifies one realm. Pure.
+     */
+    static List<PluginLoadResult> rejectDuplicateRealms(List<PluginLoadResult> results) {
+        Map<String, String> owners = new HashMap<>();
+        List<PluginLoadResult> checked = new ArrayList<>(results.size());
+        for (PluginLoadResult result : results) {
+            Optional<String> clash = Optional.empty();
+            if (result instanceof PluginLoadResult.Loaded loaded) {
+                for (PluginRealm realm : loaded.plugin().realms()) {
+                    String owner = owners.get(realm.name());
+                    if (owner != null) {
+                        clash = Optional.of("Realm '" + realm.name() + "' is already declared by plugin '"
+                                + owner + "'");
+                        break;
+                    }
+                }
+                if (clash.isEmpty()) {
+                    loaded.plugin().realms().forEach(r -> owners.put(r.name(), loaded.name()));
+                }
+            }
+            checked.add(clash.<PluginLoadResult>map(reason ->
+                    new PluginLoadResult.Failed(result.name(), result.fileName(), reason)).orElse(result));
+        }
+        return checked;
     }
 
     /**

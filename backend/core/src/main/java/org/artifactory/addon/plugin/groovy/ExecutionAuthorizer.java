@@ -15,10 +15,14 @@ package org.artifactory.addon.plugin.groovy;
  * Decides whether a caller may run a plugin execution. Pure.
  *
  * <p>Administrators may always run an execution. Anyone else may run it only when it names the caller in
- * {@code users} or names one of the caller's groups in {@code groups}. An execution that declares neither
- * is therefore admin-only.
+ * {@code users}, names one of the caller's groups in {@code groups}, or lists {@value #ANY_AUTHENTICATED} in
+ * {@code users} and the caller is not anonymous (P5). An execution that declares neither is therefore admin-only,
+ * and {@code users: ['*']} never opens an execution to anonymous callers.
  */
 public final class ExecutionAuthorizer {
+
+    /** The {@code users} entry that admits every authenticated, non-anonymous caller. */
+    public static final String ANY_AUTHENTICATED = "*";
 
     private ExecutionAuthorizer() {
     }
@@ -29,6 +33,9 @@ public final class ExecutionAuthorizer {
             return true;
         }
         if (execution.users().contains(caller.username())) {
+            return true;
+        }
+        if (!caller.anonymous() && execution.users().contains(ANY_AUTHENTICATED)) {
             return true;
         }
         for (String group : caller.groups()) {

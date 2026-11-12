@@ -112,6 +112,35 @@ public class PasswordDecryptingManagerTest extends ArtifactoryHomeBoundTest {
                 new EncryptedPasswordAuthenticationToken("user", "password", encryptedPassword));
     }
 
+    /** P2: a credential a plugin realm claims is answered by the realm, before any stock token handling. */
+    @Test
+    public void pluginRealmClaimIsReturnedBeforeTheStockTokenHandling() {
+        PasswordDecryptingManager manager = buildPasswordDecryptingManager(mock(UserGroupService.class));
+        AccessTokenAuthenticationProvider tokens = mock(AccessTokenAuthenticationProvider.class);
+        when(tokens.isAccessToken(any())).thenReturn(true);
+        manager.setDelegateAccessToken(tokens);
+        org.springframework.security.core.Authentication granted =
+                new UsernamePasswordAuthenticationToken("realm-user", "", SimpleUser.USER_GAS);
+        manager.setPluginRealms(authentication -> java.util.Optional.of(granted));
+        org.testng.Assert.assertSame(manager.authenticate(new UsernamePasswordAuthenticationToken("x", "a.b.c")),
+                granted);
+        verify(tokens, times(0)).authenticate(any());
+    }
+
+    /** P2, P6: what no plugin realm claims (including every Access token) keeps the stock path. */
+    @Test
+    public void unclaimedTokensKeepTheStockAccessTokenPath() {
+        PasswordDecryptingManager manager = buildPasswordDecryptingManager(mock(UserGroupService.class));
+        AccessTokenAuthenticationProvider tokens = mock(AccessTokenAuthenticationProvider.class);
+        when(tokens.isAccessToken(any())).thenReturn(true);
+        manager.setDelegateAccessToken(tokens);
+        manager.setPluginRealms(authentication -> java.util.Optional.empty());
+        manager.authenticate(new UsernamePasswordAuthenticationToken("x", "a.b.c"));
+        manager.setPluginRealms(null);
+        manager.authenticate(new UsernamePasswordAuthenticationToken("x", "a.b.c"));
+        verify(tokens, times(2)).authenticate(any());
+    }
+
     private PasswordDecryptingManager buildPasswordDecryptingManager(UserGroupService userGroupService) {
         // centralConfig
         CentralConfigService centralConfig = mock(CentralConfigService.class);

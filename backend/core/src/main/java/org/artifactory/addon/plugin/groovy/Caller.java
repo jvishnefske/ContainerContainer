@@ -11,6 +11,8 @@
 
 package org.artifactory.addon.plugin.groovy;
 
+import org.artifactory.security.UserInfo;
+
 import java.util.Objects;
 import java.util.Set;
 
@@ -26,5 +28,10 @@ public record Caller(String username, boolean admin, Set<String> groups) {
     public Caller {
         Objects.requireNonNull(username, "username");
         groups = Set.copyOf(groups);
+    }
+
+    /** @return whether the caller is the anonymous user */
+    public boolean anonymous() {
+        return UserInfo.isAnonymous(username);
     }
 }

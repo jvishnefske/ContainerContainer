@@ -46,7 +46,7 @@ public final class PluginReports {
 
     /**
      * Describes every plugin: {@code fileName}, {@code status}, and for loaded plugins {@code hooks},
-     * {@code executions} and {@code packageTypes} (comma separated), or {@code error} for failed ones.
+     * {@code executions}, {@code packageTypes} and {@code realms} (comma separated), or {@code error} for failed ones.
      *
      * @return plugin name to its description, in load order
      */
@@ -64,6 +64,8 @@ public final class PluginReports {
                             .map(PluginExecution::name).collect(Collectors.joining(",")));
                     entry.put("packageTypes", loaded.plugin().packageTypes().stream()
                             .map(PluginPackageType::name).collect(Collectors.joining(",")));
+                    entry.put("realms", loaded.plugin().realms().stream()
+                            .map(PluginRealm::name).collect(Collectors.joining(",")));
                 }
                 case PluginLoadResult.Failed failed -> {
                     entry.put("status", PluginsAddon.PLUGIN_STATUS_ERROR);

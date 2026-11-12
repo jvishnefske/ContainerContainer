@@ -82,12 +82,16 @@
     </bean>
 
     <!-- authentication providers order is important. keep internal provider after ldap and sso -->
+    <!-- fork: plugin realms (Groovy plugins) come after the external directories and before Access user/password
+         and the internal database, so a realm can claim credentials before stored passwords are checked. JWT
+         credentials never reach this chain; passwordDecryptingManager routes them (see PluginRealmGateway). -->
     <bean id="authenticationManager" class="org.artifactory.security.RealmAwareAuthenticationManager">
         <property name="eraseCredentialsAfterAuthentication" value="false"/>
         <constructor-arg>
             <list>
                 <ref bean="ldapAuthenticationProvider"/>
                 <ref bean="crowdAuthenticationProviderAdapter"/>
+                <ref bean="pluginRealmAuthenticationProvider"/>
                 <ref bean="accessAuthenticationProvider"/>
                 <ref bean="gitHubEnterpriseAuthenticationProvider"/>
                 <ref bean="dbAuthenticationProvider"/>

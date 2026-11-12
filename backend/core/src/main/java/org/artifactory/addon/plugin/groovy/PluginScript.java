@@ -24,10 +24,12 @@ import groovy.lang.Script;
  * upload   { beforeUploadRequest { request, repoPath -&gt; } }
  * executions { hello(users: ['bob'], groups: ['ops']) { params -&gt; message = 'hi'; status = 200 } }
  * packageType('mytype') { displayName 'My type'; layout 'simple-default'; download { r, p, resp -&gt; false } }
+ * realms { corp(autoCreateUsers: true) { bearer { token -&gt; realm.notMine() } } }
  * </pre>
  *
  * <p>Hook names accepted in each block are those of {@link HookCatalog}; an unknown name fails the load of
- * the plugin. The script's binding holds {@code log}, {@code repositories} and {@code security}, and the
+ * the plugin. The script's binding holds {@code log}, {@code repositories}, {@code security}, {@code realm}
+ * ({@link RealmResults}) and {@code pluginDir} (the plugins directory, a {@code java.nio.file.Path}), and the
  * {@link PluginDefinitionBuilder} under {@link #DEFINITION_VARIABLE}.
  */
 public abstract class PluginScript extends Script {
@@ -53,6 +55,11 @@ public abstract class PluginScript extends Script {
     /** Declares named executions. */
     public void executions(Closure<?> block) {
         runDelegated(block, new ExecutionsDelegate(definition()));
+    }
+
+    /** Declares authentication realms; see {@link PluginRealm} and {@link RealmsDelegate}. */
+    public void realms(Closure<?> block) {
+        runDelegated(block, new RealmsDelegate(definition()));
     }
 
     /** Declares a plugin package type; see {@link PackageTypeDelegate} for the keywords of the block. */

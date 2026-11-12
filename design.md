@@ -89,7 +89,7 @@ Each item is checked only when a named test demonstrates it.
       `delete`, `exists`, `getProperties` and `setProperty`.
       Evidence: backend/core: `org.artifactory.addon.plugin.groovy.PluginBindingsTest#scriptUsesEveryRepositoriesMethodAndSecurityAndLog`,
       `#bindingsMapHoldsTheThreeVariables`; `getChildren` (used by the example
-      plugin) by `#getChildrenDelegatesToTheRepositoryService`. `security` exposes only
+      plugin) by `#getChildrenDelegatesToTheRepositoryService`. Besides what P4 adds, `security` exposes
       `currentUsername`, `admin` and `anonymous`.
 - [x] G7. An exception thrown inside a hook is logged with the plugin name and
       does not fail the request, except when the hook explicitly sets an error
@@ -508,7 +508,17 @@ Generic authentication support for Groovy plugins, in the spirit of JFrog
 Pro's `realms {}` but with explicit, fail-closed results. Nothing here knows
 about OIDC.
 
-- [ ] P1. A plugin declares `realms { name(autoCreateUsers: bool, realmPolicy:
+The contract lives in `backend/core/.../addon/plugin/groovy/`: the DSL
+(`RealmsDelegate`, `PluginRealm`), the result values (`RealmResult`, built by
+the `realm` binding `RealmResults`), fail-closed invocation (`RealmInvoker`),
+the pure grant rules (`RealmGrantPolicy`) and routing rule
+(`CredentialRouting`), the shell (`PluginRealmAuthenticator`, `RealmDirectory`,
+the Spring bean `PluginRealmAuthenticationProvider`) and the resulting
+`PluginRealmAuthentication`. Unit evidence is in backend/core; live evidence is
+`docker/it/run-oidc-it.sh` (see the OIDC section), which exercises these
+requirements through the OIDC plugin.
+
+- [x] P1. A plugin declares `realms { name(autoCreateUsers: bool, realmPolicy:
       'additive'|'exclusive') { authenticate { username, credentials -> }
       bearer { token -> } userExists { username -> } } }`. `authenticate`
       sees Basic credentials, `bearer` sees the raw token of an
@@ -518,25 +528,110 @@ about OIDC.
       provider), or rejected. Any other return value, and any exception, counts
       as "not mine" for that realm and is reported in plugin status, so a
       broken plugin cannot let anyone in.
-- [ ] P2. One plugin realm authentication provider sits in the Spring provider
+      Results are built with `realm.authenticated(name, groups:, jit:,
+      expiresAt:, email:)`, `realm.notMine()` and `realm.rejected(reason)`; an
+      unknown option of `authenticated` also counts as not mine. Defaults are
+      `exclusive` and `autoCreateUsers: false`; unknown options, an unknown
+      policy, a realm without the closures its policy needs and a realm name
+      declared by an earlier plugin fail the load. Rejected is final (401):
+      later realms and providers are not asked. An additive realm never
+      authenticates: after another provider did, its `authenticate` is called
+      with the user name and `null` credentials and may only add groups, and
+      only to password and realm authentications (never to token
+      authentications, whose scope would be lost).
+      Evidence: `PluginRealmDslTest` (all 9 tests, among them
+      `#realmsBlockDeclaresARealmWithOptionsAndClosures`,
+      `#invalidDeclarationsFailTheLoadAndRegisterNoRealm`,
+      `#anythingButARealmResultIsNotMineAndIsReported`,
+      `#aRealmNameDeclaredByAnEarlierPluginFailsTheLaterOne`),
+      `PluginRealmAuthenticationProviderTest#neverAdminAndRejectionsAreFinalWithAGenericMessage`,
+      `#unclaimedTokensReturnEmptySoTheStockPathRuns`,
+      `#additiveRealmsAddAllowedGroupsToPasswordLoginsOnly`,
+      `#additiveAppliesOnlyToScopeFreeAuthenticationTypes`.
+- [x] P2. One plugin realm authentication provider sits in the Spring provider
       chain before the internal database provider, so plugin realms can claim
       credentials before they are checked against stored passwords. Access
       tokens issued by Artifactory itself keep authenticating as before:
       bearer tokens whose issuer is this Artifactory's Access are never offered
       to plugin realms.
-- [ ] P3. A realm can never grant admin. Groups a realm returns are applied
+      As built: `pluginRealmAuthenticationProvider` comes after LDAP and Crowd
+      and before Access user/password authentication and the database, so a
+      JWT used as a password is not first sent to directories and Access as a
+      failed login (account lockout). Ordinary passwords reach realms through
+      that chain (internal and anonymous logins are not offered). Stock
+      Artifactory treats every value that parses as a JWT as an Access token
+      and verifies it before the chain, so tokens reach realms through
+      `PasswordDecryptingManager`, which first offers `PluginRealmGateway` a
+      Bearer token or Basic password that is a JWT whose `iss` is not a JFrog
+      service id (`<type>@<id>[/users/<name>]`); Access tokens, reference
+      tokens, API keys and non-JWTs keep their stock path. Evidence:
+      `PluginRealmProviderOrderTest#pluginRealmProviderComesBeforeStoredPasswordProviders`,
+      `CredentialRoutingTest` (all),
+      `PluginRealmAuthenticationProviderTest#accessIssuedTokensAreNeverShownToPlugins`,
+      `#foreignJwtsInOtherHeadersAreNotOffered`,
+      `#basicWithAJwtPasswordReachesAuthenticateWithAnyUsername`,
+      `#inTheChainOrdinaryPasswordsReachAuthenticateAndUnclaimedOnesFallThrough`,
+      `PasswordDecryptingManagerTest#pluginRealmClaimIsReturnedBeforeTheStockTokenHandling`,
+      `#unclaimedTokensKeepTheStockAccessTokenPath`; live: the exchanged Access
+      token keeps working with the realm loaded (`I5.exchanged-token-works`).
+- [x] P3. A realm can never grant admin. Groups a realm returns are applied
       only if they already exist, and never include groups that carry admin
       privileges. A just-in-time user is created in a realm named after the
       plugin realm, with no password, and is not admin.
-- [ ] P4. The `security` binding gains, for realm and execution code only,
+      Enforced in Java by `RealmGrantPolicy`, not trusted to the plugin: a
+      result naming an existing (effective) administrator is refused; a
+      just-in-time user is `plugin:<realm>`, password disabled, not admin, and
+      needs both `jit: true` and `autoCreateUsers: true`; `jit: true` naming an
+      existing user of another realm is refused (no account takeover); names
+      must be valid, at most 64 characters, not anonymous, and just-in-time
+      names lower case. A realm user's stored groups are replaced by the
+      granted ones on each login (so minted tokens carry them); other users get
+      them for the request only. Successful results are cached only by the
+      existing `AccessFilter` header/session cache, which now never reuses a
+      `PluginRealmAuthentication` past its `expiresAt` or after its realm was
+      reloaded or removed (`ExpiringAuthentication`); failures are never
+      cached. Evidence: `RealmGrantPolicyTest` (all 6),
+      `PluginRealmAuthenticationProviderTest#bearerJwtCreatesAJustInTimeUserInThePluginRealmWithOnlyAllowedGroups`,
+      `#aRealmUserHasItsStoredGroupsReplacedOnTheNextLogin`,
+      `#anExistingUserGetsTheRealmGroupsForTheRequestOnly`,
+      `#neverAdminAndRejectionsAreFinalWithAGenericMessage`,
+      `#anAuthenticationIsRevokedWhenThePluginIsReloadedOrRemoved`,
+      `ExpiringAuthenticationTest` (both); live
+      `I4.jit-user-has-only-the-allowed-existing-non-admin-group`,
+      `I7.without-the-plugin-jwts-are-refused`.
+- [x] P4. The `security` binding gains, for realm and execution code only,
       `createAccessToken(expiresInSeconds)` for the current authenticated user
       (minted through Access, scope `applied-permissions/user`, refused for
       anonymous), plus `findUser(name)`.
-- [ ] P5. Plugin executions can allow every authenticated (non-anonymous)
+      As built: `findUser` and `realmAuthentication` (which realm
+      authenticated the request, and its expiry) work in realm and execution
+      code; `createAccessToken` works in execution code only, since realm code
+      runs before anyone is authenticated (the scope is a thread-local
+      `PluginCallScope`). Tokens are not refreshable and live at most the
+      requested time, one hour (`PluginSecurity.MAX_TOKEN_SECONDS`), an
+      optional `notAfterEpochSeconds` and the realm credential's remaining
+      lifetime; the answer is a `PluginAccessToken` value, never an exception.
+      Evidence: `PluginSecurityRealmBindingTest` (all 6, among them
+      `#executionsMintTokensForTheCallerWithTheUserScopeAndACappedLifetime`,
+      `#mintingIsRefusedForAnonymousForExpiredRealmCredentialsAndWhenAccessFails`,
+      `#otherPluginCodeCannotMintOrLookUpUsers`); live
+      `I5.exchanged-token-is-a-user-scoped-access-token-within-the-cap`.
+- [x] P5. Plugin executions can allow every authenticated (non-anonymous)
       caller, for example with `users: ['*']`, without opening them to
       anonymous callers.
-- [ ] P6. With no plugin realm loaded, authentication behaves exactly as stock
+      Evidence: `PluginSecurityRealmBindingTest#anyAuthenticatedCallerMayRunAStarExecutionButAnonymousMayNot`,
+      `OidcFederationPluginTest#theExchangeRefusesCallersTheRealmDidNotAuthenticate`;
+      the admin-only default is unchanged (`PluginExecutionTest`).
+- [x] P6. With no plugin realm loaded, authentication behaves exactly as stock
       OSS, and the existing suites pass unchanged.
+      With no realm the provider returns before reading the credential or any
+      user data and the gateway claims nothing. Evidence:
+      `PluginRealmAuthenticationProviderTest#withNoRealmLoadedNothingIsClaimedAndNoUserDataIsRead`,
+      `PasswordDecryptingManagerTest#unclaimedTokensKeepTheStockAccessTokenPath`;
+      live `P6.passwords-keep-working-with-the-realm-loaded`,
+      `I7.without-the-plugin-passwords-still-work`; full suites on 2026-11-12 (UTC): backend/core 10611 run 0 failed (9 skipped),
+      web/rest 1220 run 0 failed, web/rest-ui 3069 run 0 failed (3 skipped),
+      web/application 537 run 0 failed.
 
 ## OIDC token federation with login.example.com
 
@@ -568,24 +663,64 @@ as a namespaced custom claim added by an Auth0 Action. Machine tokens from the
 client-credentials grant have `sub` `<client-id>@clients` and `gty`
 `client-credentials`.
 
-- [ ] I1. A trusted issuer is configured with its exact issuer string
+Unit evidence is `OidcFederationPluginTest` (backend/core), which loads the shipped plugin into
+the engine with the real realm provider and an in-memory user store, against an
+issuer created in the test that signs Auth0-shaped tokens; the plugin's two test
+seams (a replacement for the HTTPS download, applied after the URI checks, and a
+clock) come from a binding Artifactory never sets. Live evidence is
+`docker/it/run-oidc-it.sh`, run on 2026-11-12 (UTC) against the overlay of
+`releases-docker.jfrog.io/jfrog/artifactory-oss:7.161.26` with docker and
+podman as clients and a local HTTPS issuer (`docker/it/oidc-it-issuer.py`,
+Python `cryptography`, its CA trusted through the image's
+`var/etc/security/keys/trusted/` import): 33 assertions passed, 0 failed. Neither contacts
+`login.example.com`.
+
+- [x] I1. A trusted issuer is configured with its exact issuer string
       (trailing slash included), the expected audience, the accepted
       algorithms (RS256 and PS256 only; `none`, HS* and anything else are
       rejected whatever the token or discovery says), the maximum accepted
       token lifetime, and claim-mapping rules. Configuration that would accept
       tokens without an audience check, or with no mapping rules, is refused.
-- [ ] I2. Signing keys come only from the configured issuer's `jwks_uri`, over
+      The YAML is validated when the plugin loads (unknown keys, missing
+      `issuer`, `audience`, `maxTokenLifetimeSeconds` or `rules`, an audience
+      of `*`, other algorithms, non-https URLs, a `jwksUri` off the issuer's
+      host, out-of-range numbers); a refused configuration fails the load with
+      a message naming the problem and registers no realm. Evidence:
+      `OidcFederationPluginTest#invalidConfigurationFailsTheLoadWithAClearMessageAndRegistersNoRealm`,
+      `#theRealLoginExampleComDocumentsMatchTheExampleConfiguration`.
+- [x] I2. Signing keys come only from the configured issuer's `jwks_uri`, over
       HTTPS, on the issuer's host. Keys are cached; an unknown `kid` triggers at
       most one refresh per configured interval, so rotation is followed and a
       flood of forged `kid`s cannot hammer the provider. A provider outage
       keeps serving cached keys until they expire and then fails closed.
-- [ ] I3. A token is accepted only if its signature verifies with a key of the
+      The JDK HTTP client fetches without redirects, with timeouts and a size
+      cap; only RSA signing keys of 2048 bits or more are kept and a duplicated
+      `kid` is dropped. Evidence: `OidcFederationPluginTest#rotatedKeysAreFetchedOnceAndRemovedKeysStopWorking`,
+      `#aFloodOfForgedKidsCausesAtMostOneFetchPerInterval`,
+      `#anOutageKeepsCachedKeysUntilTheyExpireThenFailsClosed`,
+      `#jwksDocumentsAreParsedStrictly`; live
+      `I2.forged-kid-flood-at-most-one-fetch-per-interval`.
+- [x] I3. A token is accepted only if its signature verifies with a key of the
       matching `kid` and `alg`, `iss` equals the configured issuer exactly,
       `aud` contains the configured audience, `exp` is in the future, `nbf` and
       `iat` are not in the future (bounded clock skew), and `exp - iat` does not
       exceed the configured maximum. Every rejection names its reason in the
       debug log and never echoes the token.
-- [ ] I4. Claim mapping is explicit and ordered: a rule matches on `sub`
+      Refinements: the skew applies to `nbf` and `iat` only, because Java also
+      refuses a realm result past its `expiresAt`; `kid` and `sub` are
+      required; a value that is not a JWT, longer than `maxTokenBytes`, or of
+      another issuer is "not mine" (401 from the stock path), so passwords
+      and other tokens keep working. Evidence: `OidcFederationPluginTest#algorithmsArePinnedWhateverTheTokenSays`
+      (HS256 keyed with the RSA public key, `none`, RS384, PS256 when not
+      configured, missing `kid`, key/alg mismatch),
+      `#signatureFromAnotherKeyOrTamperedClaimsIsRejected`,
+      `#registeredClaimsAreChecked`, `#ordinaryPasswordsAndOtherIssuersAreNotMine`
+      (issuer without the trailing slash, opaque and oversized tokens); live
+      `I3.expired-token-401`, `I3.wrong-aud-token-401`, `I3.none-token-401`,
+      `I3.hs256-token-401`, `I3.no-slash-token-401`,
+      `I3.unpublished-key-token-401`, `I3.unmapped-token-401`,
+      `I3.docker-login-with-an-expired-jwt-fails`.
+- [x] I4. Claim mapping is explicit and ordered: a rule matches on `sub`
       (exact or prefix, e.g. `auth0|` users or `<client-id>@clients` machines),
       optionally `gty` and `azp`, and maps to one existing Artifactory user, or
       to a just-in-time user named from `sub` with groups taken only from a
@@ -593,26 +728,64 @@ client-credentials grant have `sub` `<client-id>@clients` and `gty`
       rule maps to the admin flag; tokens that match no rule are rejected.
       Email is never used as an identity unless a rule names it and
       `email_verified` is true.
-- [ ] I5. `POST /artifactory/api/oidc/token` exchanges a valid Auth0 JWT for a
-      short-lived Artifactory access token (lifetime no longer than the
-      incoming token's remaining lifetime and a configured cap) for the mapped
-      user, through Access.
-- [ ] I6. An Auth0 JWT presented directly (Bearer header, or as the Basic
+      Just-in-time names are `<prefix><sub, sanitised>-<16 hex of
+      SHA-256(sub)>`, so distinct subjects never share a user; groups must
+      also be in `allowedGroups`, and Java drops missing and admin groups
+      (P3). Evidence: `OidcFederationPluginTest#auth0UserTokenAsBearerCreatesAJustInTimeUserWithOnlyAllowedExistingNonAdminGroups`,
+      `#distinctSubjectsNeverShareAJustInTimeUser`,
+      `#machineTokenAsTheBasicPasswordMapsToTheConfiguredCiUser`,
+      `#mappingIsExplicitOrderedAndNeverAdmin`,
+      `#groupsComeOnlyFromTheNamespacedClaim`; live
+      `I4.jit-user-named-from-sub`,
+      `I4.jit-user-has-only-the-allowed-existing-non-admin-group`,
+      `I4.machine-token-maps-to-the-configured-ci-user`.
+- [x] I5. A valid Auth0 JWT is exchanged for a short-lived Artifactory access
+      token (lifetime no longer than the incoming token's remaining lifetime
+      and a configured cap) for the mapped user, through Access.
+      Changed from a Java endpoint `POST /artifactory/api/oidc/token` to the
+      plugin execution `oidcToken` (`POST
+      /artifactory/api/plugins/execute/oidcToken`, `users: ['*']`), answering
+      `{access_token, token_type: Bearer, expires_in}`; it answers 403 unless
+      this realm authenticated the request, so passwords cannot be exchanged.
+      Evidence: `OidcFederationPluginTest#theExchangeMintsATokenNoLongerThanTheJwtAndTheCap`,
+      `#theExchangeRefusesCallersTheRealmDidNotAuthenticate`; live
+      `I5.exchange-returns-a-bearer-token-capped-by-the-jwt`,
+      `I5.exchanged-token-is-a-user-scoped-access-token-within-the-cap`,
+      `I5.exchanged-token-works`, `I5.exchange-refuses-password-callers-403`,
+      `I5.machine-exchange-capped-by-the-configured-maximum`.
+- [x] I6. An Auth0 JWT presented directly (Bearer header, or as the Basic
       password so `docker login` and `imagePullSecrets` work) authenticates as
       the mapped user for that request, without creating a stored token.
-- [ ] I7. With no issuer configured, authentication behaves exactly as stock
+      Optionally only with the Basic user name `basicAuthUsername`. Evidence:
+      `OidcFederationPluginTest#basicAuthUsernameRestrictsTheBasicUserName`,
+      `#machineTokenAsTheBasicPasswordMapsToTheConfiguredCiUser`; live
+      `I6.bearer-jwt-deploys`, `I6.basic-password-jwt-deploys-as-the-same-user`,
+      `I6.docker-login-with-the-jwt`, `I6.docker-push-to-oci-registry`,
+      `I6.docker-pull-same-image`, `I6.podman-login-with-a-machine-jwt`,
+      `I6.podman-push-to-oci-registry`, `I6.podman-pull-same-image`.
+- [x] I7. With no issuer configured, authentication behaves exactly as stock
       OSS.
-- [ ] I8. Tested offline with an in-process issuer that signs tokens the way
+      Without the plugin or with an invalid or missing `oidc-federation.yaml`
+      no realm is registered, which is P6. Evidence:
+      `OidcFederationPluginTest#invalidConfigurationFailsTheLoadWithAClearMessageAndRegistersNoRealm`;
+      live `I7.plugin-removed-and-reloaded`,
+      `I7.without-the-plugin-jwts-are-refused` (including a request whose
+      authentication was cached), `I7.without-the-plugin-passwords-still-work`.
+- [x] I8. Tested offline with an in-process issuer that signs tokens the way
       Auth0 does (custom-domain issuer with trailing slash, `@clients`
       machine subjects, namespaced group claim, rotated keys), plus a parsing
       test of the captured `login.example.com` documents, and live against a
       throwaway Artifactory container with that local issuer. The real tenant
       is not called by tests.
+      Evidence: `OidcFederationPluginTest` (19 tests) including
+      `#theRealLoginExampleComDocumentsMatchTheExampleConfiguration` and
+      `#jwksDocumentsAreParsedStrictly` (both fixture keys parse); the live
+      run above.
 
 ## Out of scope for the first iteration
 
 - Remote and virtual repositories of plugin types (the `HttpRepoFactory` hook
   exists and can come later).
 - UI listing of plugin types. The Angular frontend is not in the OSS sources.
-- Realms, jobs, staging and promotion DSL blocks.
+- Jobs, staging and promotion DSL blocks (realms: see Plugin realms).
 - WASM plugins.
