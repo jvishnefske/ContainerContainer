@@ -25,6 +25,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -114,12 +115,16 @@ class AbiCodecTest {
         for (String name : List.of("Location", "Access-Control-Allow-Origin", "Content-Security-Policy",
                 "Strict-Transport-Security", "Refresh", "Vary", "Set-Cookie", "WWW-Authenticate", "Content-Length",
                 "X-Forwarded-Host", "X-JFrog-Version", "X-Artifactory-Id", "X-Frame-Options",
-                "X-Content-Type-Options", "Proxy-Foo", "Server")) {
+                "X-Content-Type-Options", "Proxy-Foo", "Server", "X-Accel-Redirect", "X-Sendfile",
+                "X-Lighttpd-Send-File", "X-UA-Compatible", "X-DNS-Prefetch-Control", "X-Foo", "X-Plugin-")) {
             String json = "{\"abi\":1,\"result\":{\"status\":200,\"headers\":{\"" + name + "\":[\"v\"]}}}";
             assertTrue(malformed(json, Hook.EXECUTION).contains("may not set"), name);
         }
         for (String type : List.of("text/html", "text/html; charset=utf-8", "image/svg+xml", "application/xml",
-                "application/atom+xml", "application/javascript", "TEXT/HTML", "", "html")) {
+                "application/atom+xml", "application/javascript", "TEXT/HTML", "", "html", "text/ html",
+                "text/html (c)", "application/json, text/html", "application/json;charset=utf-8;x=y",
+                "application/json; charset=\\\"utf-8\\\"", " application/json", "application/json ",
+                "image/png", "text/plain;  charset=utf-8")) {
             String json = "{\"abi\":1,\"result\":{\"status\":200,\"headers\":{\"Content-Type\":[\"" + type
                     + "\"]}}}";
             assertTrue(malformed(json, Hook.EXECUTION).contains("content-type"), type);
@@ -131,6 +136,20 @@ class AbiCodecTest {
         GuestResult.Execution execution = assertInstanceOf(GuestResult.Execution.class, ok.result());
         assertEquals(List.of("nosniff"), execution.response().headers().get("x-content-type-options"));
         assertEquals(List.of("r1"), execution.response().headers().get("x-request-id"));
+        assertEquals(List.of("application/json; charset=utf-8"), execution.response().headers().get("content-type"));
+    }
+
+    /** The checked Content-Type is re-sent in canonical form, so no later parser can read it differently. */
+    @Test
+    void contentTypeIsCanonicalizedAndPluginHeadersAreAllowed() {
+        assertEquals(java.util.Optional.of("application/json; charset=utf-8"),
+                AbiCodec.canonicalContentType("Application/JSON;charset=UTF-8"));
+        assertEquals(java.util.Optional.of("text/plain"), AbiCodec.canonicalContentType("text/plain"));
+        assertTrue(AbiCodec.canonicalContentType("text/html").isEmpty());
+        assertTrue(AbiCodec.responseHeaderAllowed("x-plugin-cache"));
+        assertTrue(AbiCodec.responseHeaderAllowed("x-request-id"));
+        assertFalse(AbiCodec.responseHeaderAllowed("x-plugin-"));
+        assertFalse(AbiCodec.responseHeaderAllowed("x-accel-redirect"));
     }
 
     /** Request headers passed to a module are an allowlist, so no credential header can reach it. */
@@ -190,7 +209,7 @@ class AbiCodecTest {
                 .contains("base64"));
         assertTrue(malformed("{\"abi\":1,\"result\":{\"status\":200,\"headers\":{\"Set-Cookie\":[\"a=b\"]}}}",
                 Hook.EXECUTION).contains("may not set"));
-        assertTrue(malformed("{\"abi\":1,\"result\":{\"status\":200,\"headers\":{\"x-a\":[\"a\\r\\nb: c\"]}}}",
+        assertTrue(malformed("{\"abi\":1,\"result\":{\"status\":200,\"headers\":{\"x-plugin-a\":[\"a\\r\\nb: c\"]}}}",
                 Hook.EXECUTION).contains("invalid value"));
         assertTrue(malformed("{\"abi\":1,\"result\":{\"status\":200,\"headers\":{\"a b\":[\"c\"]}}}",
                 Hook.EXECUTION).contains("not a valid header name"));

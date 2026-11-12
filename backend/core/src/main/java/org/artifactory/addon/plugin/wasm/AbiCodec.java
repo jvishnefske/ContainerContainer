@@ -39,6 +39,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Encodes envelopes and decodes replies of ABI v1 ({@code plugins/wasm-abi/abi-v1.schema.json}). Pure: bytes and
@@ -52,8 +54,9 @@ import java.util.Set;
  * {@link #responseHeaderAllowed}: an allowlist, because a module's response is served from Artifactory's own origin
  * and headers such as {@code Location}, {@code Access-Control-*}, {@code Content-Security-Policy},
  * {@code Strict-Transport-Security} or {@code Set-Cookie} would let it act with that origin's authority.
- * {@code Content-Type} must not be an active type ({@link #ACTIVE_CONTENT_TYPES}), and every result gets
- * {@code X-Content-Type-Options: nosniff}, so a body is never interpreted as script or markup.
+ * {@code Content-Type} must match a strict grammar and name one of {@link #SAFE_CONTENT_TYPES}, and is re-sent in the
+ * canonical form that was checked; every result gets {@code X-Content-Type-Options: nosniff}, so a body is never
+ * interpreted as script or markup.
  */
 public final class AbiCodec {
 
@@ -63,34 +66,54 @@ public final class AbiCodec {
     public static final int MAX_GROUPS = 64;
     /** Most distinct response header names of an execution result. */
     public static final int MAX_RESPONSE_HEADERS = 32;
-    /** Standard response headers an execution may set (lower case); {@code x-*} names are covered separately. */
+    /** Response headers an execution may set (lower case), besides {@value #PLUGIN_HEADER_PREFIX} names. */
     public static final Set<String> ALLOWED_RESPONSE_HEADERS = Set.of("content-type", "content-language",
-            "content-disposition", "cache-control", "expires", "etag", "last-modified", "link", "retry-after");
-    /** {@code x-} prefixes an execution may not use: proxy, forwarding and server-owned names. */
-    static final List<String> FORBIDDEN_X_PREFIXES = List.of("x-forwarded-", "x-real-ip", "x-jfrog", "x-artifactory",
-            "x-frame-options", "x-content-type-options", "x-xss-protection", "x-permitted-cross-domain-policies");
-    /** Media types an execution may not serve, because browsers run or render them as active content. */
-    public static final Set<String> ACTIVE_CONTENT_TYPES = Set.of("text/html", "application/xhtml+xml",
-            "image/svg+xml", "text/xml", "application/xml", "text/javascript", "application/javascript",
-            "application/ecmascript", "text/ecmascript", "application/x-javascript", "text/xsl", "application/xslt+xml",
-            "text/vtt", "application/x-shockwave-flash");
+            "content-disposition", "cache-control", "expires", "etag", "last-modified", "link", "retry-after",
+            "x-request-id", "x-correlation-id");
+    /**
+     * Prefix of response header names reserved for plugins. Only this prefix is open, so headers that a proxy or the
+     * server interprets ({@code X-Accel-Redirect}, {@code X-Sendfile}, {@code X-Forwarded-*}, ...) can never be set.
+     */
+    public static final String PLUGIN_HEADER_PREFIX = "x-plugin-";
+    /**
+     * The only media types an execution may serve (type/subtype, lower case). Everything else, including every type a
+     * browser could run or render as active content, is refused.
+     */
+    public static final Set<String> SAFE_CONTENT_TYPES = Set.of("application/json", "application/problem+json",
+            "application/x-ndjson", "text/plain", "text/csv", "application/octet-stream", "application/gzip",
+            "application/zip");
+    /**
+     * Strict grammar for an execution's Content-Type: {@code type/subtype}, optionally followed by exactly one
+     * {@code ; charset=<token>} parameter. No comments, quotes, lists, extra parameters or stray whitespace, so the
+     * value cannot be read differently by this check, by JAX-RS and by a browser.
+     */
+    private static final Pattern CONTENT_TYPE = Pattern.compile(
+            "([a-z0-9][a-z0-9!#$&^_.+-]{0,126})/([a-z0-9][a-z0-9!#$&^_.+-]{0,126})(?:; ?charset=([a-z0-9._-]{1,40}))?");
 
     /** @return whether an execution may set response header {@code lower} (a lower-case name). Pure. */
     static boolean responseHeaderAllowed(String lower) {
-        if (ALLOWED_RESPONSE_HEADERS.contains(lower)) {
-            return true;
-        }
-        return lower.startsWith("x-") && FORBIDDEN_X_PREFIXES.stream().noneMatch(lower::startsWith);
+        return ALLOWED_RESPONSE_HEADERS.contains(lower)
+                || (lower.startsWith(PLUGIN_HEADER_PREFIX) && lower.length() > PLUGIN_HEADER_PREFIX.length());
     }
 
-    /** @return whether {@code contentType} (a header value) names an active media type. Pure. */
-    static boolean isActiveContentType(String contentType) {
-        int semicolon = contentType.indexOf(';');
-        String type = (semicolon < 0 ? contentType : contentType.substring(0, semicolon)).trim()
-                .toLowerCase(Locale.ROOT);
-        return ACTIVE_CONTENT_TYPES.contains(type) || type.endsWith("+xml") || type.isEmpty()
-                || type.indexOf('/') < 0;
+    /**
+     * Checks an execution's Content-Type against the strict grammar and {@link #SAFE_CONTENT_TYPES}.
+     *
+     * @return the canonical value to send ({@code type/subtype} or {@code type/subtype; charset=x}, lower case), or
+     *         empty when the value is refused. Pure.
+     */
+    static Optional<String> canonicalContentType(String contentType) {
+        Matcher matcher = CONTENT_TYPE.matcher(contentType.toLowerCase(Locale.ROOT));
+        if (!matcher.matches()) {
+            return Optional.empty();
+        }
+        String type = matcher.group(1) + "/" + matcher.group(2);
+        if (!SAFE_CONTENT_TYPES.contains(type)) {
+            return Optional.empty();
+        }
+        return Optional.of(matcher.group(3) == null ? type : type + "; charset=" + matcher.group(3));
     }
+
     static final int MAX_DEPTH = 64;
     private static final int MAX_RESPONSE_HEADER_VALUES = 64;
     private static final int MAX_EFFECT_HEADERS = 64;
@@ -424,8 +447,14 @@ public final class AbiCodec {
             }
         }
         List<String> contentType = headers.get("content-type");
-        if (contentType != null && (contentType.size() != 1 || isActiveContentType(contentType.get(0)))) {
-            throw new Problem("result.headers content-type must be one value naming a non-active media type");
+        if (contentType != null) {
+            Optional<String> canonical = contentType.size() == 1
+                    ? canonicalContentType(contentType.get(0)) : Optional.empty();
+            if (canonical.isEmpty()) {
+                throw new Problem("result.headers content-type must be one value naming an allowed media type");
+            }
+            // Send exactly the value that was checked, so no later parser can read it differently.
+            headers.put("content-type", List.of(canonical.get()));
         }
         headers.put("x-content-type-options", List.of("nosniff"));
         return new ExecutionHook.Response(status.asInt(), headers, base64(result.get("body"), "result.body"));

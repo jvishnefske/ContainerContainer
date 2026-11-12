@@ -42,6 +42,7 @@ import org.artifactory.addon.AddonsManager;
 import org.artifactory.addon.HaAddon;
 import org.artifactory.addon.plugin.ResponseCtx;
 import org.artifactory.addon.plugin.groovy.HostedResponseCtx;
+import org.artifactory.addon.plugin.wasm.AbiCodec;
 import org.artifactory.addon.rest.RestAddon;
 import org.artifactory.aol.AolService;
 import org.artifactory.api.rest.constant.HaRestConstants;
@@ -312,7 +313,8 @@ public class PluginsResource {
 
     /**
      * Sends the headers of a hosted (WASM) execution's response. The host already validated them; a
-     * {@code content-type} that is not a valid media type is dropped and the default {@code text/plain} stays.
+     * {@code content-type} that is not a valid media type, or whose parsed type is not in
+     * {@link AbiCodec#SAFE_CONTENT_TYPES}, is dropped and the default {@code text/plain} stays.
      * Groovy executions return a plain {@link ResponseCtx}, whose headers are not sent, as before.
      */
     private static void withHostedHeaders(Response.ResponseBuilder builder, Map<String, List<String>> headers) {
@@ -320,7 +322,15 @@ public class PluginsResource {
             if ("content-type".equalsIgnoreCase(name)) {
                 if (!values.isEmpty()) {
                     try {
-                        builder.type(MediaType.valueOf(values.get(0)));
+                        MediaType type = MediaType.valueOf(values.get(0));
+                        // Defense in depth: the codec already allowed and canonicalized it; re-check what JAX-RS
+                        // actually parsed, so a parser difference can never send an active type.
+                        String parsed = (type.getType() + "/" + type.getSubtype()).toLowerCase(java.util.Locale.ROOT);
+                        if (AbiCodec.SAFE_CONTENT_TYPES.contains(parsed)) {
+                            builder.type(type);
+                        } else {
+                            log.warn("Dropping content type '{}' of a plugin execution: not an allowed type", parsed);
+                        }
                     } catch (IllegalArgumentException e) {
                         log.debug("Ignoring invalid content type of a plugin execution: {}", e.getMessage());
                     }
