@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -42,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -125,6 +127,19 @@ class DownloadServiceImplPluginPackageTypeTest extends ArtifactoryHomeBoundJUnit
         ArgumentCaptor<ResourceStreamHandle> handle = ArgumentCaptor.forClass(ResourceStreamHandle.class);
         verify(requestResponseHelper).sendBodyResponse(eq(response), any(), handle.capture(), any(), anyBoolean());
         assertEquals("stored", IOUtils.toString(handle.getValue().getInputStream(), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void handledStreamWithoutSizeIsStreamedWithoutContentLength() throws Exception {
+        register(PluginPackageType.builder("simple", "simple-plugin").download((req, p, resp) -> {
+            resp.setInputStream(new ByteArrayInputStream("stored".getBytes(StandardCharsets.UTF_8)));
+            return true;
+        }));
+        assertTrue(service.respondedByPluginPackageType(requestContext, response, repo));
+        ArgumentCaptor<InputStream> body = ArgumentCaptor.forClass(InputStream.class);
+        verify(response).sendStream(body.capture());
+        verify(response, never()).setContentLength(anyLong());
+        verify(requestResponseHelper, never()).sendBodyResponse(any(), any(), any(), any(), anyBoolean());
     }
 
     @Test

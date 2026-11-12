@@ -18,6 +18,7 @@ import org.artifactory.api.repo.RepositoryService;
 import org.artifactory.api.security.SecurityService;
 import org.artifactory.descriptor.property.Property;
 import org.artifactory.fs.FileInfo;
+import org.artifactory.fs.ItemInfo;
 import org.artifactory.md.Properties;
 import org.artifactory.repo.RepoPath;
 import org.artifactory.repo.RepoPathFactory;
@@ -30,6 +31,7 @@ import org.slf4j.Logger;
 
 import java.io.InputStream;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -116,6 +118,13 @@ class PluginBindingsTest {
         verify(propertiesService).addProperty(eq(path), isNull(), property.capture(), eq("pass"));
         assertEquals("qa", property.getValue().getName());
         verify(repositoryService).undeploy(path);
+    }
+
+    @Test
+    void getChildrenDelegatesToTheRepositoryService() {
+        ItemInfo child = mock(ItemInfo.class);
+        when(repositoryService.getChildren(path)).thenReturn(List.of(child));
+        assertEquals(List.of(child), new PluginRepositories(repositoryService, propertiesService).getChildren(path));
     }
 
     @Test

@@ -16,11 +16,13 @@ import org.artifactory.api.repo.RepositoryService;
 import org.artifactory.common.status.StatusHolder;
 import org.artifactory.descriptor.property.Property;
 import org.artifactory.fs.FileInfo;
+import org.artifactory.fs.ItemInfo;
 import org.artifactory.md.Properties;
 import org.artifactory.repo.RepoPath;
 import org.artifactory.resource.ResourceStreamHandle;
 
 import java.io.InputStream;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -65,6 +67,14 @@ public final class PluginRepositories {
     /** Deletes the file or folder (recursively) at {@code repoPath}. */
     public StatusHolder delete(RepoPath repoPath) {
         return repositoryService.undeploy(repoPath);
+    }
+
+    /**
+     * @return the direct children (files and folders) of the folder at {@code repoPath}; empty for a file or a
+     * missing path
+     */
+    public List<ItemInfo> getChildren(RepoPath repoPath) {
+        return repositoryService.getChildren(repoPath);
     }
 
     /** @return whether an item exists at {@code repoPath} */
