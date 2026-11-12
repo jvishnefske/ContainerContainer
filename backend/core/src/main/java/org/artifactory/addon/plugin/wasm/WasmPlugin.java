@@ -44,16 +44,23 @@ import java.util.function.LongSupplier;
  * answers; a failed one answers {@link HostedOutcome.Failed}, which the caller turns into "not mine" (realms) or 500
  * (executions), and leaves the state untouched (W4).
  *
- * <p>An execution's {@code request} carries the request headers without credentials ({@link #CREDENTIAL_HEADERS}
- * are removed, so the module never sees the caller's password or token), the body (read up to
+ * <p>An execution's {@code request} carries only the request headers in {@link #PASSED_REQUEST_HEADERS}, an allowlist
+ * of headers that never carry credentials, so the module never sees the caller's password, token, API key, cookie or
+ * any authentication header added later; the body (read up to
  * {@code limits.maxStdinBytes}; a larger body fails the call) and the caller, including the plugin realm that
  * authenticated it.
  */
 public final class WasmPlugin {
 
-    /** Request headers never passed to a module. */
-    public static final Set<String> CREDENTIAL_HEADERS = Set.of("authorization", "proxy-authorization", "cookie",
-            "x-jfrog-art-api", "x-api-key");
+    /**
+     * The only request headers passed to a module (lower case). An allowlist rather than a list of credential headers
+     * to remove, because Artifactory accepts credentials in many headers (and may add more), and WASM modules are not
+     * trusted with them.
+     */
+    public static final Set<String> PASSED_REQUEST_HEADERS = Set.of("accept", "accept-charset", "accept-encoding",
+            "accept-language", "content-type", "content-length", "content-encoding", "content-language", "user-agent",
+            "if-match", "if-none-match", "if-modified-since", "if-unmodified-since", "if-range", "range",
+            "x-request-id", "x-correlation-id", "traceparent", "tracestate");
 
     private final String name;
     private final WasmManifest manifest;
@@ -197,12 +204,12 @@ public final class WasmPlugin {
         return result;
     }
 
-    /** @return {@code headers} with lower-case names and without {@link #CREDENTIAL_HEADERS}. Pure. */
+    /** @return {@code headers} with lower-case names, keeping only {@link #PASSED_REQUEST_HEADERS}. Pure. */
     static Map<String, List<String>> headers(Map<String, List<String>> headers) {
         Map<String, List<String>> result = new LinkedHashMap<>();
         headers.forEach((key, values) -> {
             String lower = key.toLowerCase(Locale.ROOT);
-            if (!CREDENTIAL_HEADERS.contains(lower)) {
+            if (PASSED_REQUEST_HEADERS.contains(lower)) {
                 result.computeIfAbsent(lower, k -> new ArrayList<>()).addAll(values);
             }
         });

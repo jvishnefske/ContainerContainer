@@ -48,8 +48,12 @@ import java.util.Set;
  * {@value #MAX_DEPTH}, {@code abi} equal to 1, exactly one of {@code result} and {@code effects}, a result of the
  * kind the hook expects, field types as in the schema, at most {@value #MAX_EFFECTS} effects per step and at most
  * {@value #MAX_GROUPS} groups. Unknown fields are ignored, as the schema requires. Execution response headers must be
- * HTTP tokens with values free of control characters, at most {@value #MAX_RESPONSE_HEADERS} names, and none of
- * {@link #FORBIDDEN_RESPONSE_HEADERS}, which belong to the server (framing, cookies, authentication challenges).
+ * HTTP tokens with values free of control characters, at most {@value #MAX_RESPONSE_HEADERS} names, and allowed by
+ * {@link #responseHeaderAllowed}: an allowlist, because a module's response is served from Artifactory's own origin
+ * and headers such as {@code Location}, {@code Access-Control-*}, {@code Content-Security-Policy},
+ * {@code Strict-Transport-Security} or {@code Set-Cookie} would let it act with that origin's authority.
+ * {@code Content-Type} must not be an active type ({@link #ACTIVE_CONTENT_TYPES}), and every result gets
+ * {@code X-Content-Type-Options: nosniff}, so a body is never interpreted as script or markup.
  */
 public final class AbiCodec {
 
@@ -59,10 +63,34 @@ public final class AbiCodec {
     public static final int MAX_GROUPS = 64;
     /** Most distinct response header names of an execution result. */
     public static final int MAX_RESPONSE_HEADERS = 32;
-    /** Response headers an execution may not set. */
-    public static final Set<String> FORBIDDEN_RESPONSE_HEADERS = Set.of("content-length", "transfer-encoding",
-            "connection", "keep-alive", "upgrade", "trailer", "te", "set-cookie", "set-cookie2", "www-authenticate",
-            "proxy-authenticate");
+    /** Standard response headers an execution may set (lower case); {@code x-*} names are covered separately. */
+    public static final Set<String> ALLOWED_RESPONSE_HEADERS = Set.of("content-type", "content-language",
+            "content-disposition", "cache-control", "expires", "etag", "last-modified", "link", "retry-after");
+    /** {@code x-} prefixes an execution may not use: proxy, forwarding and server-owned names. */
+    static final List<String> FORBIDDEN_X_PREFIXES = List.of("x-forwarded-", "x-real-ip", "x-jfrog", "x-artifactory",
+            "x-frame-options", "x-content-type-options", "x-xss-protection", "x-permitted-cross-domain-policies");
+    /** Media types an execution may not serve, because browsers run or render them as active content. */
+    public static final Set<String> ACTIVE_CONTENT_TYPES = Set.of("text/html", "application/xhtml+xml",
+            "image/svg+xml", "text/xml", "application/xml", "text/javascript", "application/javascript",
+            "application/ecmascript", "text/ecmascript", "application/x-javascript", "text/xsl", "application/xslt+xml",
+            "text/vtt", "application/x-shockwave-flash");
+
+    /** @return whether an execution may set response header {@code lower} (a lower-case name). Pure. */
+    static boolean responseHeaderAllowed(String lower) {
+        if (ALLOWED_RESPONSE_HEADERS.contains(lower)) {
+            return true;
+        }
+        return lower.startsWith("x-") && FORBIDDEN_X_PREFIXES.stream().noneMatch(lower::startsWith);
+    }
+
+    /** @return whether {@code contentType} (a header value) names an active media type. Pure. */
+    static boolean isActiveContentType(String contentType) {
+        int semicolon = contentType.indexOf(';');
+        String type = (semicolon < 0 ? contentType : contentType.substring(0, semicolon)).trim()
+                .toLowerCase(Locale.ROOT);
+        return ACTIVE_CONTENT_TYPES.contains(type) || type.endsWith("+xml") || type.isEmpty()
+                || type.indexOf('/') < 0;
+    }
     static final int MAX_DEPTH = 64;
     private static final int MAX_RESPONSE_HEADER_VALUES = 64;
     private static final int MAX_EFFECT_HEADERS = 64;
@@ -372,7 +400,7 @@ public final class AbiCodec {
                 if (!EffectPolicy.isToken(name)) {
                     throw new Problem("result.headers name '" + name + "' is not a valid header name");
                 }
-                if (FORBIDDEN_RESPONSE_HEADERS.contains(lower) || lower.startsWith("proxy-")) {
+                if (!responseHeaderAllowed(lower)) {
                     throw new Problem("result.headers may not set '" + name + "'");
                 }
                 if (!field.getValue().isArray()) {
@@ -395,6 +423,11 @@ public final class AbiCodec {
                 throw new Problem("result.headers has more than " + MAX_RESPONSE_HEADER_VALUES + " values");
             }
         }
+        List<String> contentType = headers.get("content-type");
+        if (contentType != null && (contentType.size() != 1 || isActiveContentType(contentType.get(0)))) {
+            throw new Problem("result.headers content-type must be one value naming a non-active media type");
+        }
+        headers.put("x-content-type-options", List.of("nosniff"));
         return new ExecutionHook.Response(status.asInt(), headers, base64(result.get("body"), "result.body"));
     }
 

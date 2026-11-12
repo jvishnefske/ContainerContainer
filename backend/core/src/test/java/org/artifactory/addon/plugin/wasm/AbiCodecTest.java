@@ -108,6 +108,43 @@ class AbiCodecTest {
         assertEquals(Optional.of(JsonText.NULL), nullState.state());
     }
 
+    /** Response headers are an allowlist: a module's output is served from Artifactory's own origin. */
+    @Test
+    void responseHeadersAreAllowlistedAndActiveContentIsRefused() {
+        for (String name : List.of("Location", "Access-Control-Allow-Origin", "Content-Security-Policy",
+                "Strict-Transport-Security", "Refresh", "Vary", "Set-Cookie", "WWW-Authenticate", "Content-Length",
+                "X-Forwarded-Host", "X-JFrog-Version", "X-Artifactory-Id", "X-Frame-Options",
+                "X-Content-Type-Options", "Proxy-Foo", "Server")) {
+            String json = "{\"abi\":1,\"result\":{\"status\":200,\"headers\":{\"" + name + "\":[\"v\"]}}}";
+            assertTrue(malformed(json, Hook.EXECUTION).contains("may not set"), name);
+        }
+        for (String type : List.of("text/html", "text/html; charset=utf-8", "image/svg+xml", "application/xml",
+                "application/atom+xml", "application/javascript", "TEXT/HTML", "", "html")) {
+            String json = "{\"abi\":1,\"result\":{\"status\":200,\"headers\":{\"Content-Type\":[\"" + type
+                    + "\"]}}}";
+            assertTrue(malformed(json, Hook.EXECUTION).contains("content-type"), type);
+        }
+        AbiCodec.Final ok = assertInstanceOf(AbiCodec.Final.class, reply("""
+                {"abi":1,"result":{"status":200,"headers":{"Content-Type":["application/json; charset=utf-8"],
+                "Cache-Control":["no-store"],"ETag":["\\"1\\""],"X-Request-Id":["r1"],
+                "Content-Disposition":["attachment"]}}}""", Hook.EXECUTION));
+        GuestResult.Execution execution = assertInstanceOf(GuestResult.Execution.class, ok.result());
+        assertEquals(List.of("nosniff"), execution.response().headers().get("x-content-type-options"));
+        assertEquals(List.of("r1"), execution.response().headers().get("x-request-id"));
+    }
+
+    /** Request headers passed to a module are an allowlist, so no credential header can reach it. */
+    @Test
+    void onlyAllowlistedRequestHeadersReachTheModule() {
+        Map<String, List<String>> passed = WasmPlugin.headers(Map.of(
+                "Authorization", List.of("Basic eDp5"), "Cookie", List.of("s=1"), "X-JFrog-Art-Api", List.of("k"),
+                "X-Auth-Token-Delegate", List.of("t"), "X-NuGet-ApiKey", List.of("n"), "X-Api-Key", List.of("a"),
+                "Private-Token", List.of("p"), "Accept", List.of("application/json"), "User-Agent", List.of("ua"),
+                "X-Request-Id", List.of("r")));
+        assertEquals(Map.of("accept", List.of("application/json"), "user-agent", List.of("ua"),
+                "x-request-id", List.of("r")), passed);
+    }
+
     @Test
     void executionResultsAndEffectsDecode() {
         AbiCodec.Final done = assertInstanceOf(AbiCodec.Final.class, reply("""
@@ -115,7 +152,8 @@ class AbiCodecTest {
                 Hook.EXECUTION));
         GuestResult.Execution execution = assertInstanceOf(GuestResult.Execution.class, done.result());
         assertEquals(201, execution.response().status());
-        assertEquals(Map.of("content-type", List.of("application/json")), execution.response().headers());
+        assertEquals(Map.of("content-type", List.of("application/json"), "x-content-type-options", List.of("nosniff")),
+                execution.response().headers());
         assertArrayEquals("{}".getBytes(), execution.response().body());
         AbiCodec.Ask ask = assertInstanceOf(AbiCodec.Ask.class, reply("""
                 {"abi":1,"effects":[{"type":"http_get","url":"https://a.test/x","headers":{"accept":"text/plain"}},
@@ -152,7 +190,7 @@ class AbiCodecTest {
                 .contains("base64"));
         assertTrue(malformed("{\"abi\":1,\"result\":{\"status\":200,\"headers\":{\"Set-Cookie\":[\"a=b\"]}}}",
                 Hook.EXECUTION).contains("may not set"));
-        assertTrue(malformed("{\"abi\":1,\"result\":{\"status\":200,\"headers\":{\"x\":[\"a\\r\\nb: c\"]}}}",
+        assertTrue(malformed("{\"abi\":1,\"result\":{\"status\":200,\"headers\":{\"x-a\":[\"a\\r\\nb: c\"]}}}",
                 Hook.EXECUTION).contains("invalid value"));
         assertTrue(malformed("{\"abi\":1,\"result\":{\"status\":200,\"headers\":{\"a b\":[\"c\"]}}}",
                 Hook.EXECUTION).contains("not a valid header name"));
