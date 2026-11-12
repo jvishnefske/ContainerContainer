@@ -54,7 +54,7 @@ jobs:
           distribution: temurin
           java-version: '25'
           cache: maven
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: artifactory-m2
       - name: Restore this build's modules into the local Maven repository
