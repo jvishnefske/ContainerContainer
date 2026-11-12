@@ -64,6 +64,15 @@ class RepoConfigMigrationPatchUtilsTest {
         Assertions.assertEquals("true", config.get("cargoInternalIndex"));
     }
 
+    @Test
+    void testBuildLocalPackageTypeConfigGenericCarriesPluginPackageType() {
+        Map<String, String> config = new HashMap<>();
+        RepoConfigMigrationPatchUtils.buildLocalPackageTypeConfig(config, RepoType.Generic,
+                Map.of("pluginPackageType", "simpleidx", "dockerApiVersion", "V2"),
+                repositoriesGeneralConfigDescriptor);
+        assertEquals(Map.of("pluginPackageType", "simpleidx"), config);
+    }
+
     // ===== parseFederationMembers tests =====
 
     @Test

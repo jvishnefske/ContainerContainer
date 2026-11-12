@@ -3,6 +3,7 @@ package org.artifactory.repo.migration.mappers;
 import jakarta.annotation.Nonnull;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
+import org.artifactory.addon.plugin.pkgtype.PluginPackageTypes;
 import org.artifactory.descriptor.config.CentralConfigDescriptor;
 import org.artifactory.descriptor.property.PropertySet;
 import org.artifactory.descriptor.repo.RepoType;
@@ -145,6 +146,12 @@ public class RepoConfigMigrationPatchUtils {
         }
     }
 
+    /**
+     * Copies the package-type specific keys of {@code repoType} from a YAML patch ({@code newValues}) into
+     * {@code packageTypeConfig}; other keys are ignored. For {@code Generic} the only such key is
+     * {@code pluginPackageType}, which names a plugin-defined package type and is validated when the
+     * configuration is saved.
+     */
     public static void buildLocalPackageTypeConfig(Map<String, String> packageTypeConfig,
             RepoType repoType,
             Map<String, Object> newValues, RepositoriesGeneralConfigDescriptor repositoriesGeneralConfigDescriptor) {
@@ -196,6 +203,9 @@ public class RepoConfigMigrationPatchUtils {
                             addValueToPackageTypeConfigIfNeeded(ENCRYPT_STATES.getKey(), packageTypeConfig, newValue);
                     case Conan -> addValueToPackageTypeConfigIfNeeded("forceConanAuthentication", packageTypeConfig,
                             newValue);
+                    // Fork: a Generic repository may name a plugin-defined package type (validated on save).
+                    case Generic -> addValueToPackageTypeConfigIfNeeded(PluginPackageTypes.CONFIG_KEY,
+                            packageTypeConfig, newValue);
                     default -> {return;}
                 }
             } catch (ClassCastException e) {

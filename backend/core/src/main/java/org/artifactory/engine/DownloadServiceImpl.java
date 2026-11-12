@@ -1152,7 +1152,9 @@ public class DownloadServiceImpl implements InternalDownloadService, Entitlement
     /**
      * Sends a plugin-filled {@link ResponseCtx} the way {@link #respondNotModifiedResource} sends an alternate
      * response: {@link AltResponseHelper#applyResponseCtx} decides status, headers and content, and
-     * {@link RequestResponseHelper} streams it against a resource describing the requested path.
+     * {@link RequestResponseHelper} streams it against a resource describing the requested path. A content stream
+     * whose size the plugin did not set is streamed as is, without a {@code Content-Length}, the way the
+     * {@code afterDownloadError} plugin path sends content; describing it as a resource would advertise length 0.
      */
     private void respondPluginHandled(InternalRequestContext requestContext, ArtifactoryResponse response,
             ResponseCtx responseCtx, RepoPath repoPath) throws IOException {
@@ -1173,6 +1175,12 @@ public class DownloadServiceImpl implements InternalDownloadService, Entitlement
         }
         if (handle == null) {
             requestResponseHelper.sendEmptyResponse(response, resource);
+            return;
+        }
+        if (handle.getSize() < 0) {
+            try (handle) {
+                response.sendStream(handle.getInputStream());
+            }
             return;
         }
         requestResponseHelper.sendBodyResponse(response, resource, handle, requestContext,

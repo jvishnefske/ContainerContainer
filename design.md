@@ -28,8 +28,19 @@ Each item is checked only when a named test demonstrates it.
       repository.
       Shown by a full reactor `mvn install` in `maven:3.9-eclipse-temurin-25`
       with only those two repositories configured (all 34 modules build).
-- [ ] B2. The fork's jars, overlaid on the stock 7.161.26 image, start
+- [x] B2. The fork's jars, overlaid on the stock 7.161.26 image, start
       Artifactory with existing data and no schema migration.
+      Evidence: `docker/it/run-it.sh` on 2026-11-11 against
+      `releases-docker.jfrog.io/jfrog/artifactory-oss@sha256:d103c0464d33645acdcbfbb6fc61310d7faf14c9893975cbee562487eaeac1d1`
+      (overlay built by `docker/build-overlay.sh`: 18 `artifactory-*-7.161.15.jar`
+      replaced, `groovy-4.0.32.jar` added, the version the WAR resolves through
+      the Spring Boot BOM). The stock image writes a repository and a file, then
+      the overlay starts on the same volume: `B2.stock-data-written`,
+      `B2.fork-starts-on-existing-data`, `B2.stock-data-readable`,
+      `B2.no-schema-migration` (the only conversion logged is PRE_INIT
+      7.161.15 to 7.161.15, which the stock image also logs). Both images use the
+      embedded Derby database, which since 7.161 needs the stock opt-in
+      `JF_SHARED_DATABASE_ALLOWNONPOSTGRESQL=true`.
 - [x] B3. With no plugins present the fork behaves as stock OSS: the existing
       unit test suite of every changed module passes.
       Full suites on 2026-11-11: backend/core 10435 run 0 failed, web/rest 1205
@@ -77,7 +88,8 @@ Each item is checked only when a named test demonstrates it.
       `repositories` supports at least `getFileInfo`, `getContent`, `deploy`,
       `delete`, `exists`, `getProperties` and `setProperty`.
       Evidence: backend/core: `org.artifactory.addon.plugin.groovy.PluginBindingsTest#scriptUsesEveryRepositoriesMethodAndSecurityAndLog`,
-      `#bindingsMapHoldsTheThreeVariables`. `security` exposes only
+      `#bindingsMapHoldsTheThreeVariables`; `getChildren` (used by the example
+      plugin) by `#getChildrenDelegatesToTheRepositoryService`. `security` exposes only
       `currentUsername`, `admin` and `anonymous`.
 - [x] G7. An exception thrown inside a hook is logged with the plugin name and
       does not fail the request, except when the hook explicitly sets an error
@@ -99,30 +111,40 @@ Each item is checked only when a named test demonstrates it.
       `PluginPackageType` with its handlers and registry rejections surface in
       plugin status (`org.artifactory.addon.plugin.groovy.PackageTypeDslTest`,
       `#invalidTypeNameSurfacesInPluginStatus`).
-- [ ] R2. Creating a local repository through the REST repository API with
-      `"packageType": "generic"` and `"packageTypeConfig":
-      {"pluginPackageType": "name"}` succeeds only when `name` is registered.
-      Otherwise it returns 400 with a message naming the unknown type.
-      Not yet checked: the save-time validator and the UI REST layer are
-      covered by `PluginPackageTypeRepoConfigValidatorTest#createWithUnknownTypeRejectedWith400NamingType`,
+- [x] R2. Creating a local Generic repository whose package type configuration
+      sets `pluginPackageType` to `name` succeeds only when `name` is
+      registered. Otherwise it returns 400 with a message naming the unknown type.
+      In OSS the public repository API (`PUT /api/repositories/{key}`) is a Pro
+      feature (`RestAddonDefaultImpl` throws `MissingRestAddonException`, 400),
+      so the OSS create path is the YAML configuration API,
+      `PATCH /api/system/configuration`, whose `localRepositories` entries of
+      `type: generic` accept `pluginPackageType`
+      (`RepoConfigMigrationPatchUtilsTest#testBuildLocalPackageTypeConfigGenericCarriesPluginPackageType`).
+      Evidence: `docker/it/run-it.sh` (2026-11-11, image digest under B2):
+      `R2.unknown-type-rejected-400-naming-it`, `R2.unknown-type-not-stored`,
+      `R2.registered-type-accepted`. The save-time validator and the UI REST layer
+      are covered by `PluginPackageTypeRepoConfigValidatorTest#createWithUnknownTypeRejectedWith400NamingType`,
       `#createWithRegisteredTypeAccepted` and
-      `PluginPackageTypeRepoValidationTest#createWithUnknownTypeReturns400AndStoresNothing`,
-      but no test yet drives the public REST repository endpoint, whose OSS
-      implementation lives in `RestAddonDefaultImpl`.
+      `PluginPackageTypeRepoValidationTest#createWithUnknownTypeReturns400AndStoresNothing`.
 - [x] R3. GET requests to a plugin-typed repository go through the type's
       `download` handler, which can serve stored content, a generated
       response (for example an index document) or a status code. When the
       handler declines, normal Generic handling applies.
       Evidence: `DownloadServiceImplPluginPackageTypeTest#handledMessageIsServedAsBody`,
       `#handledStreamIsServedAsBody`, `#handledErrorStatusIsSentAsError`,
-      `#handledHeadSendsHeadResponse`, `#declinedFallsThroughToGeneric` and
-      `#handlerExceptionFallsThroughToGeneric`.
+      `#handledHeadSendsHeadResponse`, `#declinedFallsThroughToGeneric`,
+      `#handlerExceptionFallsThroughToGeneric` and
+      `#handledStreamWithoutSizeIsStreamedWithoutContentLength`. Live, with read
+      permissions enforced before the handler: `docker/it/run-it.sh`
+      `R5.R7.index-json-lists-a-1.0.tgz` (served by the handler) and
+      `R3.anonymous-index-denied`.
 - [x] R4. PUT requests to a plugin-typed repository go through the type's
       `upload` handler, which can reject the upload or rewrite the target path
       before storage.
       Evidence: `UploadServiceImplPluginPackageTypeTest#acceptLeavesRequestUnchanged`,
       `#rejectSendsStatusAndStoresNothing`, `#rewriteInSameRepoTranslatesTargetPath`
-      and `#rewriteToOtherRepoRejectedWith400`.
+      and `#rewriteToOtherRepoRejectedWith400`. Live: `docker/it/run-it.sh`
+      `R4.upload-tgz-201`, `R4.upload-txt-rejected-400`, `R4.rejected-file-not-stored`.
 - [x] R5. Whenever the files of a local plugin-typed repository change, the
       type's `index` handler runs asynchronously after the change commits, so
       it can maintain metadata files such as an index. The events covered are
@@ -141,7 +163,8 @@ Each item is checked only when a named test demonstrates it.
       `#deleteFromPluginRepoIndexesRemovedPath`,
       `#deleteThatIsPartOfAMoveIsLeftToTheMove`,
       `#folderCopyMoveDeleteAreIgnored`,
-      `#handlersOwnMovesAndDeletesDoNotRetrigger` and `#affectedPathsDecision`.
+      `#handlersOwnMovesAndDeletesDoNotRetrigger` and `#affectedPathsDecision`. Live:
+      `docker/it/run-it.sh` `R5.R7.index-json-lists-a-1.0.tgz`.
 - [x] R6. If the plugin is removed, a repository of its type keeps working as
       plain Generic and its stored artifacts stay intact.
       Evidence: `DownloadServiceImplPluginPackageTypeTest#unregisteredTypeFallsThroughToGeneric`,
@@ -149,9 +172,20 @@ Each item is checked only when a named test demonstrates it.
       `PluginPackageTypeIndexInterceptorTest#typeRemovedBeforeAsyncRunSkipsHandler`,
       `PluginPackageTypeResolverTest#unregisteredTypeServesAsGenericAndIsReportedOnce`,
       `PluginPackageTypeRepoConfigValidatorTest#importOfRepoWithUnknownTypeDoesNotFail`
-      and `#updateKeepingTypeOfRemovedPluginAccepted`.
-- [ ] R7. A worked example plugin ships under `plugins/examples/` and defines a
+      and `#updateKeepingTypeOfRemovedPluginAccepted`. Live: `docker/it/run-it.sh`
+      `R6.reload-after-removal`, `R6.execution-gone`,
+      `R6.stored-artifact-still-served`, `R6.plain-generic-upload-after-removal`.
+- [x] R7. A worked example plugin ships under `plugins/examples/` and defines a
       simple package type with an index, covered by an integration test.
+      `plugins/examples/simple-index.groovy` defines type `simpleidx` (accepts `.tgz`
+      uploads and its own `index.json`, maintains and serves that index) and the
+      admin-only POST execution
+      `simpleidxReindex`. Evidence: `docker/it/run-it.sh` (2026-11-11, image
+      digest under B2): `G5.plugins-lists-simpleidxReindex`,
+      `G4.execute-wrong-method-405`, `R4.upload-tgz-201`,
+      `R4.upload-txt-rejected-400`, `R5.R7.index-json-lists-a-1.0.tgz`,
+      `R7.reindex-execution`; unit: `org.artifactory.addon.plugin.groovy.ExamplePluginTest`
+      loads the shipped file.
 - [x] R8. Editing a plugin-typed repository keeps its plugin package type
       unless the update itself sets or clears it. The UI repository editor
       has no field for the key and rebuilds `packageTypeConfig` from its
