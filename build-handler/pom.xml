@@ -499,6 +499,18 @@
     </dependencyManagement>
 
     <build>
+        <!-- Same pin as the root pom (this module's parent is artifactory-parent-pom, not the root): the parent
+             manages develocity-maven-extension without a version, so Maven resolved "the latest" from repository
+             metadata, which changes whenever a new version is published (and with it nix/mvn-hash.txt). -->
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>com.gradle</groupId>
+                    <artifactId>develocity-maven-extension</artifactId>
+                    <version>2.6.1</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
         <plugins>
             <!-- Automatically invoke "clean" before "build/install". -->
             <plugin>

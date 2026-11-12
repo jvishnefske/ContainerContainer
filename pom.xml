@@ -58,6 +58,23 @@
     </modules>
 
     <build>
+        <!-- The parent POMs manage these two without a version, so Maven resolved "the latest" from repository
+             metadata, which changes whenever a new version is published. Pinned so the set of downloaded artifacts
+             (and the Nix fixed-output hash in nix/mvn-hash.txt) only changes when a pom changes. -->
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-pmd-plugin</artifactId>
+                    <version>3.28.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>com.gradle</groupId>
+                    <artifactId>develocity-maven-extension</artifactId>
+                    <version>2.6.1</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
         <plugins>
             <plugin>
                 <groupId>org.pitest</groupId>

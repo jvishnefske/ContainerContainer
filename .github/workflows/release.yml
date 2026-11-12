@@ -1,0 +1,88 @@
+# Binary release built by the Nix flake.
+#
+# A push of tag v<version>, where <version> is the content of nix/version.txt, runs every flake check, builds
+# packages.release (containercontainer-<version>-jars.tar.gz and SHA256SUMS), rebuilds it to confirm the bytes are
+# reproducible, verifies the sums and publishes a GitHub Release with both files. workflow_dispatch does all of that
+# except publishing (a dry run; the files are kept as a workflow artifact).
+#
+# Every file in dist/ becomes a release asset and dist/SHA256SUMS covers all of them, so a later asset (for example
+# a from-scratch *.oci.tar image) is added by building it into dist/ in the build job.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            sandbox = true
+      - name: Check that the tag matches nix/version.txt
+        if: github.ref_type == 'tag'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          want="v$(cat nix/version.txt)"
+          [ "$TAG" = "$want" ] || { echo "tag $TAG does not match nix/version.txt ($want)" >&2; exit 1; }
+      - name: nix flake check
+        run: nix flake check -L
+      - name: Build the release
+        run: nix build -L .#release --out-link result-release
+      - name: Rebuild the release and require identical bytes
+        run: nix build -L .#release --rebuild --no-link
+      - name: Collect and verify the assets
+        run: |
+          mkdir dist
+          cp result-release/* dist/
+          chmod u+w dist/*
+          cd dist
+          sha256sum -c SHA256SUMS
+          ls -l
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist
+      - name: Verify the assets again
+        run: cd dist && sha256sum -c SHA256SUMS
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release create "$TAG" dist/* \
+            --repo "$REPO" \
+            --verify-tag \
+            --title "$TAG" \
+            --notes "Built by the Nix flake from $TAG ($GITHUB_SHA). Verify with: sha256sum -c SHA256SUMS. Source: https://github.com/$REPO/tree/$TAG (AGPL-3.0-or-later)."

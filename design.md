@@ -46,6 +46,46 @@ Each item is checked only when a named test demonstrates it.
       Full suites on 2026-11-11: backend/core 10435 run 0 failed, web/rest 1205
       run 0 failed, web/rest-ui 3068 run 0 failed (3 skipped, as upstream).
 
+### Nix flake and binary release
+
+The flake (`flake.nix`, `nix/`) builds the binary release that downstream deployments consume; see the README
+section "Binary release and Nix".
+
+- [x] N1. `nix build .#jars` builds the fork's jars purely: Maven dependencies come only from a fixed-output
+      derivation (hash in `nix/mvn-hash.txt`, recomputed by `nix/update-mvn-hash.sh`) resolving from Maven Central
+      and `jfrog-jars`, and the build itself runs offline in the sandbox. The jar set is the one
+      `docker/build-overlay.sh` installs, chosen against the committed stock listing `nix/stock-lib.txt`, with a
+      manifest of names, roles, sha256s and the source revision.
+      Evidence (2026-11-12, x86_64-linux, nixpkgs nixos-26.05 `ac588ef`, `jdk25` 25.0.5, Maven 3.9.12): the
+      dependency derivation (484 MB, 4100+ files) fetched twice from scratch with the same hash, after pinning the
+      two plugins the parent POMs left versionless (`maven-pmd-plugin`, `develocity-maven-extension`), so it holds
+      no `maven-metadata` files; `nix build .#jars` then builds offline in about 3 minutes, and two
+      `nix build .#jarsBuild --rebuild` runs reproduced it bit for bit (one earlier rebuild, before the pins, did
+      not, and was not kept for diffing). `checks.jars-vs-stock` passes: 18 jars replaced, `groovy-4.0.32.jar`
+      added, sums match the manifest. 16 of the 18 jars are entry-for-entry identical (CRC) to a conventional
+      `mvn install` WAR from 2026-11-11; core and web-application differ only in classes changed after that build.
+- [x] N2. `nix build .#release` produces `containercontainer-<version>-jars.tar.gz` (jars, manifest, `LICENSE`, the
+      ABI schema, a `NOTICE` with the source revision and AGPL source offer) and `SHA256SUMS`; the version comes only
+      from `nix/version.txt`, and packing is deterministic, so a rebuild yields identical bytes.
+      Evidence: `checks.release-deterministic` (packs twice from inputs with different mtimes, compares bytes with
+      the package, runs `sha256sum -c SHA256SUMS`, requires owner 0/0 on every entry) passes, and
+      `nix build .#release --rebuild` reports identical output.
+- [ ] N3. The flake builds a minimal from-scratch OCI image (no stock base image) from Nix-built parts, with a
+      `plugins` argument, attached to releases as an additional asset. Prepared for: `packages.war` exposes the
+      complete WAR separately from the jar set, and the release workflow publishes every file it collects.
+- [x] N4. `lib.buildWasmPlugin` builds a Rust crate for `wasm32-wasip1` offline from its `Cargo.lock` and fails the
+      build when the module imports anything outside `wasi_snapshot_preview1`.
+      Evidence: `checks.wasm-hello` builds `nix/tests/wasm-hello` (imports: five `wasi_snapshot_preview1`
+      functions), runs it under wasmtime for an execution, a realm and a malformed envelope, and validates the
+      three replies against the `Reply` definition of `abi-v1.schema.json`; `checks.wasm-imports-check-rejects`
+      shows the same module failing the build when only `env` imports are allowed.
+- [ ] N5. Pushing tag `v<version>` runs `.github/workflows/release.yml`: tag and `nix/version.txt` must agree, all
+      flake checks pass, the release is rebuilt bit for bit and its sums verified, and a GitHub Release carries the
+      tarball and `SHA256SUMS`; a manual run is a dry run that publishes nothing. Only `GITHUB_TOKEN` is used, with
+      `contents: write` in the publishing job alone.
+      Not yet checked: the workflow has not run (no tag pushed). Its steps were run locally: `nix flake check`,
+      `nix build .#release`, `nix build .#release --rebuild`, `sha256sum -c SHA256SUMS`.
+
 ### Groovy plugin engine
 
 - [x] G1. On startup, every `*.groovy` file in `ArtifactoryHome.getPluginsDir()`
