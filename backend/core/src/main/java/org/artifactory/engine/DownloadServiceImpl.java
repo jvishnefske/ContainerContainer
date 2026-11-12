@@ -77,6 +77,7 @@ import org.artifactory.exception.WorkerStopException;
 import org.artifactory.factory.InfoFactoryHolder;
 import org.artifactory.fs.MutableFileInfo;
 import org.artifactory.fs.RepoResource;
+import org.artifactory.io.SimpleResourceStreamHandle;
 import org.artifactory.md.MetadataDefinitionService;
 import org.artifactory.md.Properties;
 import org.artifactory.mime.MavenNaming;
@@ -158,8 +159,10 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.www.BasicAuthenticationEntryPoint;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.io.StringWriter;
 import java.net.URI;
@@ -1178,13 +1181,40 @@ public class DownloadServiceImpl implements InternalDownloadService, Entitlement
             return;
         }
         if (handle.getSize() < 0) {
-            try (handle) {
-                response.sendStream(handle.getInputStream());
+            Optional<ResourceStreamHandle> sized = bufferUnsizedPluginStream(handle);
+            if (sized.isEmpty()) {
+                response.sendError(HttpStatus.SC_INTERNAL_SERVER_ERROR, "Plugin package type response for "
+                        + repoPath + " has no size and exceeds " + MAX_UNSIZED_PLUGIN_RESPONSE_BYTES + " bytes", log);
+                return;
             }
-            return;
+            handle = sized.get();
+            resource = pluginResponseResource(repoPath, handle);
         }
         requestResponseHelper.sendBodyResponse(response, resource, handle, requestContext,
                 shouldTriggerDownloadInterceptors(requestContext.getRequest()));
+    }
+
+    /** Upper bound for buffering a plugin response stream whose size the plugin did not set. */
+    @VisibleForTesting
+    static final int MAX_UNSIZED_PLUGIN_RESPONSE_BYTES = 16 * 1024 * 1024;
+
+    /**
+     * Reads a plugin response stream of unknown size into memory, so it can be sent through
+     * {@link RequestResponseHelper#sendBodyResponse} like every other download, with its content-type hardening,
+     * security headers, access logging and download interceptors. Closes {@code handle}.
+     *
+     * @return a sized handle over the buffered bytes, or empty when the stream exceeds
+     *         {@link #MAX_UNSIZED_PLUGIN_RESPONSE_BYTES}
+     */
+    @VisibleForTesting
+    static Optional<ResourceStreamHandle> bufferUnsizedPluginStream(ResourceStreamHandle handle) throws IOException {
+        try (handle; InputStream in = handle.getInputStream()) {
+            byte[] bytes = in.readNBytes(MAX_UNSIZED_PLUGIN_RESPONSE_BYTES + 1);
+            if (bytes.length > MAX_UNSIZED_PLUGIN_RESPONSE_BYTES) {
+                return Optional.empty();
+            }
+            return Optional.of(new SimpleResourceStreamHandle(new ByteArrayInputStream(bytes), bytes.length));
+        }
     }
 
     /**

@@ -39,7 +39,7 @@ RUN set -eu; \
         [ -n "$jar" ] || continue; \
         cp "/overlay/lib/$jar" "$lib/$jar"; \
         chown artifactory:artifactory "$lib/$jar"; \
-        chmod 0777 "$lib/$jar"; \
+        chmod 0644 "$lib/$jar"; \
     done; \
     ls "$lib" | LC_ALL=C sort > /tmp/lib.after; \
     if ! cmp -s /tmp/lib.after /overlay/expected; then \
