@@ -11,8 +11,8 @@ unmodified release). It is not affiliated with or endorsed by JFrog. The fork ad
   HTTP `api` handlers whose permissions are enforced in Java before plugin code runs.
 - An OCI / Docker registry written as a plugin (`plugins/oci/`), passing the OCI distribution-spec v1.1.0
   conformance suite.
-- OIDC token federation as a plugin (`plugins/oidc/`), targeting an Auth0 issuer: JWT bearer and JWT-as-password
-  login, claim-to-user mapping, and exchange for short-lived Artifactory tokens.
+- Plugin realms (`realms {}`): authentication plugins for Basic and Bearer credentials, with admin grants, group
+  assignment and just-in-time users constrained in Java.
 
 Requirements and the tests that demonstrate each one are in `design.md`. Every commit is built and unit-tested by
 the `ci` workflow; the `integration` workflow builds an overlay image (the stock
