@@ -108,9 +108,9 @@ class InitialAdminResourceTest {
     }
 
     @Test
-    void forwardedClientAddressIsPassedOn() {
+    void forwardedHeaderIsIgnoredAndTheSocketAddressIsPassedOn() {
         when(resource.request.getHeader("X-Forwarded-For")).thenReturn("198.51.100.7, 10.0.0.1");
-        when(service.claim(TOKEN, PASSWORD, "198.51.100.7", NOW)).thenReturn(ClaimResult.CLAIMED);
+        when(service.claim(TOKEN, PASSWORD, "192.0.2.10", NOW)).thenReturn(ClaimResult.CLAIMED);
         assertEquals(200, resource.claim(body(BODY)).getStatus());
     }
 

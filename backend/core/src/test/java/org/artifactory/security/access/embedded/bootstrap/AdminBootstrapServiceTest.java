@@ -243,19 +243,34 @@ class AdminBootstrapServiceTest {
     }
 
     @Test
-    void attemptsAreRateLimitedPerClient() throws IOException {
+    void wrongTokenAttemptsAreRateLimitedPerClientAndGlobally() throws IOException {
+        AdminBootstrapService service = service(name -> null, new ClaimRateLimit(2, 3, Duration.ofMinutes(15), 16));
+        service.start(T0);
+        String wrong = "wrong-token-wrong-token-wrong";
+
+        assertEquals(ClaimResult.REFUSED, service.claim(wrong, GOOD_PASSWORD, CLIENT, T0));
+        assertEquals(ClaimResult.REFUSED, service.claim(wrong, GOOD_PASSWORD, CLIENT, T0));
+        assertEquals(ClaimResult.RATE_LIMITED, service.claim(wrong, GOOD_PASSWORD, CLIENT, T0));
+        assertEquals(ClaimResult.REFUSED, service.claim(wrong, GOOD_PASSWORD, "192.0.2.11", T0));
+        assertEquals(ClaimResult.RATE_LIMITED, service.claim(wrong, GOOD_PASSWORD, "192.0.2.12", T0),
+                "the global limit applies across clients");
+    }
+
+    @Test
+    void validTokenIsNeverLockedOutByExhaustedLimits() throws IOException {
         AdminBootstrapService service = service(name -> null, new ClaimRateLimit(2, 3, Duration.ofMinutes(15), 16));
         service.start(T0);
         String token = generatedToken();
+        String wrong = "wrong-token-wrong-token-wrong";
+        for (int i = 0; i < 5; i++) {
+            service.claim(wrong, GOOD_PASSWORD, "192.0.2." + (20 + i), T0);
+        }
+        assertEquals(ClaimResult.RATE_LIMITED, service.claim(wrong, GOOD_PASSWORD, CLIENT, T0));
 
-        assertEquals(ClaimResult.REFUSED, service.claim("wrong-token-wrong-token-wrong", GOOD_PASSWORD, CLIENT, T0));
-        assertEquals(ClaimResult.REFUSED, service.claim("wrong-token-wrong-token-wrong", GOOD_PASSWORD, CLIENT, T0));
-        assertEquals(ClaimResult.RATE_LIMITED, service.claim(token, GOOD_PASSWORD, CLIENT, T0));
-        assertEquals(ClaimResult.REFUSED,
-                service.claim("wrong-token-wrong-token-wrong", GOOD_PASSWORD, "192.0.2.11", T0));
-        assertEquals(ClaimResult.RATE_LIMITED, service.claim(token, GOOD_PASSWORD, "192.0.2.12", T0),
-                "the global limit applies across clients");
-        assertEquals(ClaimResult.CLAIMED, service.claim(token, GOOD_PASSWORD, CLIENT, T0.plus(Duration.ofMinutes(15))));
+        assertEquals(ClaimResult.CLAIMED, service.claim(token, GOOD_PASSWORD, CLIENT, T0),
+                "the holder of the valid token claims despite the exhausted global limit");
+        assertEquals(ClaimResult.RATE_LIMITED, service.claim(token, GOOD_PASSWORD, CLIENT, T0),
+                "once claimed the token is no longer valid, so the attempt counts and is limited");
     }
 
     @Test

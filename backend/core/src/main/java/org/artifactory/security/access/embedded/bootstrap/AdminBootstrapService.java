@@ -236,7 +236,8 @@ public final class AdminBootstrapService {
     }
 
     /**
-     * Attempts to claim the server.
+     * Attempts to claim the server. Attempts that do not present the valid, unexpired setup token count toward the
+     * per-client and global rate limits; a request with the valid token is never rate limited.
      *
      * @param token    the presented setup token, or {@code null}
      * @param password the chosen administrator password, or {@code null}
@@ -246,13 +247,25 @@ public final class AdminBootstrapService {
      */
     public ClaimResult claim(String token, String password, String clientIp, Instant now) {
         String client = clientIp == null || clientIp.isBlank() ? UNKNOWN_CLIENT : clientIp;
-        ClaimRateLimit.Decision decision = countAttempt(client, now);
-        if (decision != ClaimRateLimit.Decision.ALLOWED) {
-            log.warn("Initial admin claim from {} rate limited: {}", client, decision);
-            return ClaimResult.RATE_LIMITED;
+        Optional<BootstrapState> loaded = claimed ? Optional.empty() : port.load().toOptional().flatMap(s -> s);
+        ClaimVerdict verdict = loaded.map(s -> BootstrapRules.classifyClaim(s, token, now))
+                .orElse(ClaimVerdict.ALREADY_CLAIMED);
+        // The limits exist against guessing the token. A request that presents the valid, unexpired token (checked
+        // in constant time) is not guessing, so it is never counted or limited: nobody who lacks the token can
+        // lock the holder out by exhausting the global limit.
+        if (verdict != ClaimVerdict.ACCEPTED) {
+            ClaimRateLimit.Decision decision = countAttempt(client, now);
+            if (decision != ClaimRateLimit.Decision.ALLOWED) {
+                log.warn("Initial admin claim from {} rate limited: {}", client, decision);
+                return ClaimResult.RATE_LIMITED;
+            }
         }
         if (claimed) {
             log.warn("Initial admin claim from {} refused: {}", client, ClaimVerdict.ALREADY_CLAIMED);
+            return ClaimResult.REFUSED;
+        }
+        if (loaded.isEmpty()) {
+            log.warn("Initial admin claim from {} refused: no readable bootstrap state", client);
             return ClaimResult.REFUSED;
         }
         EaOutcome<Done> policyVerdict = policy.validate(ADMIN_USERNAME, password);
@@ -260,13 +273,7 @@ public final class AdminBootstrapService {
             log.warn("Initial admin claim from {} refused: password does not meet the policy", client);
             return ClaimResult.REFUSED;
         }
-        Optional<BootstrapState> loaded = port.load().toOptional().flatMap(s -> s);
-        if (loaded.isEmpty()) {
-            log.warn("Initial admin claim from {} refused: no readable bootstrap state", client);
-            return ClaimResult.REFUSED;
-        }
         BootstrapState state = loaded.get();
-        ClaimVerdict verdict = BootstrapRules.classifyClaim(state, token, now);
         Optional<Claimed> newState = BootstrapRules.attemptClaim(state, token, now, client).toOptional();
         if (newState.isEmpty()) {
             log.warn("Initial admin claim from {} refused: {}", client, verdict);

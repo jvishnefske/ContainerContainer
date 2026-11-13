@@ -23,14 +23,12 @@ import jakarta.ws.rs.core.Response;
 import org.artifactory.api.context.ContextHelper;
 import org.artifactory.security.access.embedded.bootstrap.AdminBootstrapService;
 import org.artifactory.security.access.embedded.bootstrap.AdminBootstrapService.ClaimResult;
-import org.artifactory.util.HttpUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.util.Optional;
@@ -48,8 +46,10 @@ import java.util.function.Supplier;
  * <p>
  * The endpoint is anonymous: the setup filter lets it through while unclaimed, and the anonymous interceptor
  * {@code AnonymousInitialAdminClaimInterceptor} lets it pass {@code AccessFilter} even when anonymous access is off.
- * The client address comes from {@link HttpUtils#getRemoteClientAddress(HttpServletRequest)}, which honours
- * {@code X-Forwarded-For}; the global rate limit bounds what a client can gain by spoofing it.
+ * The client address used for the per-client rate limit and the audit record is the socket peer
+ * ({@link HttpServletRequest#getRemoteAddr()}), never a forwarding header, so a client cannot spread its attempts
+ * over invented addresses. A request with the valid setup token is never rate limited, so the holder cannot be
+ * locked out by others exhausting the limits.
  */
 @Component
 @Path(InitialAdminResource.PATH_ROOT)
@@ -171,11 +171,7 @@ public class InitialAdminResource {
         if (request == null) {
             return null;
         }
-        try {
-            return HttpUtils.getRemoteClientAddress(request);
-        } catch (URISyntaxException e) {
-            return request.getRemoteAddr();
-        }
+        return request.getRemoteAddr();
     }
 
     private static Response json(int status, String body) {
