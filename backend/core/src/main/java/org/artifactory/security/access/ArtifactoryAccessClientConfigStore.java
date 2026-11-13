@@ -38,7 +38,6 @@ import org.jfrog.access.client.RootCertificateHolder;
 import org.jfrog.access.client.confstore.AccessClientConfigStore;
 import org.jfrog.access.common.ServerInfo;
 import org.jfrog.access.common.ServiceId;
-import org.jfrog.access.util.AccessCredsFileHelper;
 import org.jfrog.access.version.AccessVersion;
 import org.jfrog.security.file.PemHelper;
 import org.jfrog.security.file.SecurityFolderHelper;
@@ -68,10 +67,13 @@ import java.util.stream.Stream;
 import static java.util.Objects.requireNonNull;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.artifactory.common.ConstantValues.accessClientUseArtifactoryRootCertificateEnabled;
-import static org.jfrog.access.util.AccessCredsFileHelper.ADMIN_DEFAULT_USERNAME;
 import static org.jfrog.security.file.SecurityFolderHelper.PERMISSIONS_MODE_600;
 
 /**
+ * Client-side configuration of the Access client: server URL, root certificate, admin token and client version
+ * files. It never writes an {@code access.creds} file with default administrator credentials: converting a legacy
+ * embedded-server layout only deletes the obsolete key and token files (IA1).
+ *
  * @author Yinon Avraham.
  */
 @Slf4j
@@ -86,7 +88,6 @@ public class ArtifactoryAccessClientConfigStore implements AccessClientConfigSto
     private final ArtifactoryHome artifactoryHome;
     private final File rootCrtFile;
     private final File clientVersionFile;
-    private final File accessAdminCredsFile;
     private final String routerUrl;
     private ServiceId serviceId;
 
@@ -97,7 +98,6 @@ public class ArtifactoryAccessClientConfigStore implements AccessClientConfigSto
                 requireNonNull(artifactoryHome.getSysConfig().helper().getRouterUrl(), "routerUrl is required");
         this.rootCrtFile = new File(artifactoryHome.getAccessClientDir(), "keys/root.crt");
         this.clientVersionFile = new File(artifactoryHome.getAccessClientDir(), "data/access.version.properties");
-        this.accessAdminCredsFile = artifactoryHome.getAccessAdminCredsFile();
         this.serviceId = requireNonNull(serviceId, "service ID is required");
         convertClientConfigFromEmbeddedAccessServerIfNeeded();
     }
@@ -118,10 +118,8 @@ public class ArtifactoryAccessClientConfigStore implements AccessClientConfigSto
             if (adminTokenFile.exists()) {
                 log.debug("Admin token file exists: '{}', starting access client config conversion from " +
                         "embedded server to bundled server.", adminTokenFile.getAbsolutePath());
-                // Create the access.creds file with default credentials (this is under the assumption that the embedded
-                // access server always had these credentials)
-                AccessCredsFileHelper.saveAccessCreds(accessAdminCredsFile, ADMIN_DEFAULT_USERNAME, "password");
-                SecurityFolderHelper.setPermissionsOnSecurityFile(accessAdminCredsFile.toPath(), PERMISSIONS_MODE_600);
+                // Stock Artifactory wrote an access.creds file holding the published default admin password here.
+                // The fork ships no default credential (IA1), so nothing is written.
                 // remove the old format of the admin token
                 Files.delete(adminTokenFile.toPath());
                 // Remove obsolete files

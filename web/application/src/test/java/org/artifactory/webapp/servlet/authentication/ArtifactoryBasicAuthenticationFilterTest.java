@@ -105,8 +105,6 @@ class ArtifactoryBasicAuthenticationFilterTest {
 
         request.addHeader(HttpHeaders.AUTHORIZATION, String.format("Basic %s", auth));
         try (MockedStatic<SecurityUtils> securityUtils = mockStatic(SecurityUtils.class)) {
-            securityUtils.when(() -> SecurityUtils.validatePasswordPolicy(any(), any())).thenReturn(true);
-
             assertTrue(filter.acceptFilter(request));
         }
     }
@@ -127,21 +125,22 @@ class ArtifactoryBasicAuthenticationFilterTest {
         request.addHeader(HttpHeaders.AUTHORIZATION, String.format("Basic %s", auth));
 
         try (MockedStatic<SecurityUtils> securityUtils = mockStatic(SecurityUtils.class)) {
-            securityUtils.when(() -> SecurityUtils.validatePasswordPolicy(any(), any())).thenReturn(true);
-
             assertFalse(filter.acceptFilter(request));
         }
     }
 
     @Test
-    void testAcceptFilterWithNonValidPassword() {
+    void testAcceptFilterDoesNotApplyThePasswordPolicyAtLogin() {
+        String auth = Base64.encodeBase64String("someone:short".getBytes());
         ArtifactoryBasicAuthenticationFilter filter = new ArtifactoryBasicAuthenticationFilter();
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "api/repodata");
+        filter.setAuthorizationService(mock(AuthorizationService.class));
+        filter.setSecurityService(mock(SecurityService.class));
+        request.addHeader(HttpHeaders.AUTHORIZATION, String.format("Basic %s", auth));
 
         try (MockedStatic<SecurityUtils> securityUtils = mockStatic(SecurityUtils.class)) {
-            securityUtils.when(() -> SecurityUtils.validatePasswordPolicy(any(), any())).thenReturn(false);
-
-            assertFalse(filter.acceptFilter(request));
+            assertTrue(filter.acceptFilter(request));
+            securityUtils.verifyNoInteractions();
         }
     }
 

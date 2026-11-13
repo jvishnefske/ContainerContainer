@@ -17,6 +17,7 @@
 # `pluginPackageType` for Generic repositories. The PUT attempt is reported as INFO for the record.
 #
 # Usage: docker/it/run-it.sh            (env: SKIP_BUILD=1 reuses an existing image; LOG_DIR keeps container logs)
+# Requires ADMIN_USER and ADMIN_PASSWORD in the environment: no default administrator credential is shipped.
 # Exit status: 0 when every assertion passes, 1 otherwise.
 set -uo pipefail
 
@@ -29,7 +30,10 @@ VOLUME=rt-fork-it-var
 VAR=/var/opt/jfrog/artifactory
 PLUGINS_DIR=$VAR/etc/artifactory/plugins
 PLUGIN_SRC="$ROOT/plugins/examples/simple-index.groovy"
-ADMIN=admin:password
+# Administrator credentials come from the environment; no default is shipped (design IA1).
+: "${ADMIN_USER:?set ADMIN_USER (and ADMIN_PASSWORD) to the administrator credentials of the server under test}"
+: "${ADMIN_PASSWORD:?set ADMIN_PASSWORD to the password of ADMIN_USER; there is no default password}"
+ADMIN="$ADMIN_USER:$ADMIN_PASSWORD"
 STARTUP_TIMEOUT=600
 INDEX_TIMEOUT=90
 LOG_DIR="${LOG_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/rt-fork-it-logs.XXXXXX")}"

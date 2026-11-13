@@ -674,7 +674,12 @@ requirements through the OIDC plugin.
       existing `AccessFilter` header/session cache, which now never reuses a
       `PluginRealmAuthentication` past its `expiresAt` or after its realm was
       reloaded or removed (`ExpiringAuthentication`); failures are never
-      cached. Evidence: `RealmGrantPolicyTest` (all 6),
+      cached. Administrator rights for external users come only from the
+      explicit Java-side `ExternalAdminMapping` (IA7): after the policy, a
+      realm group listed in `artifactory.security.externalAdminGroups`
+      (empty by default) makes the user admin for that authentication only,
+      never stored, and only once the server is claimed.
+      Evidence: `RealmGrantPolicyTest` (all 6),
       `PluginRealmAuthenticationProviderTest#bearerJwtCreatesAJustInTimeUserInThePluginRealmWithOnlyAllowedGroups`,
       `#aRealmUserHasItsStoredGroupsReplacedOnTheNextLogin`,
       `#anExistingUserGetsTheRealmGroupsForTheRequestOnly`,

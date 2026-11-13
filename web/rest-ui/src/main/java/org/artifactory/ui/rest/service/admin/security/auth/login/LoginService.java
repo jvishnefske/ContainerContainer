@@ -22,7 +22,6 @@ package org.artifactory.ui.rest.service.admin.security.auth.login;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.http.HttpStatus;
 import org.artifactory.UiAuthenticationDetails;
 import org.artifactory.addon.AddonsManager;
 import org.artifactory.addon.OssAddonsManager;
@@ -48,7 +47,6 @@ import org.artifactory.ui.rest.model.admin.security.general.SecurityConfig;
 import org.artifactory.ui.rest.model.admin.security.login.UserLogin;
 import org.artifactory.ui.rest.model.admin.security.user.BaseUser;
 import org.artifactory.ui.rest.service.admin.security.general.GetSecurityConfigService;
-import org.artifactory.util.SecurityUtils;
 import org.artifactory.util.SessionUtils;
 import org.jfrog.access.client.model.CrowdSetting;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -102,10 +100,8 @@ public class LoginService extends AbstractLoginService {
 
         securityService.assertUserAllowedToLoginWithMfaEnabled(username, request.isUiRestCall());
 
-        if (!SecurityUtils.validatePasswordPolicy(username, password)) {
-            response.responseCode(HttpStatus.SC_UNAUTHORIZED).error("Password Policy validation failed");
-            return;
-        }
+        // The password policy (IA6) applies when a password is set, not at login: a login password may belong to
+        // an external realm, and stored internal passwords already passed the policy.
 
         getSecurityConfigService.execute(request, response);
         SecurityConfig securityConfig = (SecurityConfig) response.getIModel();

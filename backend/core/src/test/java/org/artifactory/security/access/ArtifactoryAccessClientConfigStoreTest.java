@@ -280,6 +280,7 @@ public class ArtifactoryAccessClientConfigStoreTest extends ArtifactoryHomeBound
         assertFalse(keyFile.exists());
         assertFalse(crtFile.exists());
         assertFalse(keystoreFile.exists());
+        assertFalse(accessCredsFile.exists(), "no access.creds with default credentials may be written");
     }
 
     @Test(dataProvider = "provideNewClientBuilder")

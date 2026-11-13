@@ -22,6 +22,7 @@
 # everything (including the docker images tagged 127.0.0.1:<port>/...) is removed again on exit.
 #
 # Usage: docker/it/run-oci-it.sh   (env: SKIP_BUILD=1, IMAGE, LOG_DIR keeps container logs and the conformance report)
+# Requires ADMIN_USER and ADMIN_PASSWORD in the environment: no default administrator credential is shipped.
 # Exit status: 0 when every assertion passes, 1 otherwise.
 set -uo pipefail
 
@@ -35,7 +36,10 @@ VOLUME=rt-oci-it-var
 VAR=/var/opt/jfrog/artifactory
 PLUGINS_DIR=$VAR/etc/artifactory/plugins
 PLUGIN_SRC="$ROOT/plugins/oci/oci-registry.groovy"
-ADMIN=admin:password
+# Administrator credentials come from the environment; no default is shipped (design IA1).
+: "${ADMIN_USER:?set ADMIN_USER (and ADMIN_PASSWORD) to the administrator credentials of the server under test}"
+: "${ADMIN_PASSWORD:?set ADMIN_PASSWORD to the password of ADMIN_USER; there is no default password}"
+ADMIN="$ADMIN_USER:$ADMIN_PASSWORD"
 OCTET="Content-Type: application/octet-stream"
 OCIADMIN_USER=ociadmin OCIADMIN_PASS='Admin-Passw0rd!'
 DEPLOYER_USER=deployer DEPLOYER_PASS='Deployer-Passw0rd!'

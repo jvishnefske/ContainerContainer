@@ -366,14 +366,13 @@ public interface AccessService extends ImportableExportable, ReloadableBean {
     void revokeAllForUserAndScope(String username, String scope);
 
     /**
-     * Query for a security issue to determine if a access admin using old and unsecured password.
+     * Tells whether the server still awaits its initial setup (IA1): the built-in administrator has not been claimed
+     * with the one-time setup token or an operator-supplied temporary password. This replaces the stock check for
+     * the published default administrator password, which no longer exists.
+     *
+     * @return {@code true} while unclaimed, and whenever the bootstrap state is not available (fail closed)
      */
-    boolean isAdminUsingOldDefaultPassword();
-
-    /**
-     * Invalidate the access admin using old and unsecured password cache.
-     */
-    void invalidateAdminUsingOldDefaultPasswordCache();
+    boolean isInitialSetupRequired();
 
     /**
      * If call fails with 401 AccessClientHttpException, wait for

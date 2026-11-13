@@ -262,12 +262,8 @@ public class DummyAccessService implements AccessService {
     }
 
     @Override
-    public boolean isAdminUsingOldDefaultPassword() {
+    public boolean isInitialSetupRequired() {
         return false;
-    }
-
-    @Override
-    public void invalidateAdminUsingOldDefaultPasswordCache() {
     }
 
     @Override

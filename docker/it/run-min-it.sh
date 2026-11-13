@@ -31,6 +31,7 @@
 # leftovers with those names are removed first, and everything is removed again on exit.
 #
 # Usage: docker/it/run-min-it.sh   (env: SKIP_BUILD=1, IMAGE, IMAGE_TAR, LOG_DIR keeps container logs, TMPDIR)
+# Requires ADMIN_USER and ADMIN_PASSWORD in the environment: no default administrator credential is shipped.
 # Exit status: 0 when every assertion passes, 1 otherwise.
 set -uo pipefail
 
@@ -45,7 +46,10 @@ NET=rt-min-it-net
 VOLUME=rt-min-it-var
 ACCESS_VOLUME=rt-min-it-access-var
 VAR=/var/opt/jfrog/artifactory
-ADMIN=admin:password
+# Administrator credentials come from the environment; no default is shipped (design IA1).
+: "${ADMIN_USER:?set ADMIN_USER (and ADMIN_PASSWORD) to the administrator credentials of the server under test}"
+: "${ADMIN_PASSWORD:?set ADMIN_PASSWORD to the password of ADMIN_USER; there is no default password}"
+ADMIN="$ADMIN_USER:$ADMIN_PASSWORD"
 ISSUER=echo-it
 STARTUP_TIMEOUT=600
 LOG_DIR="${LOG_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/rt-min-it-logs.XXXXXX")}"

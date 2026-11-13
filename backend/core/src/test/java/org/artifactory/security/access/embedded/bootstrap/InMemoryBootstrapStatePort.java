@@ -27,6 +27,7 @@ public final class InMemoryBootstrapStatePort implements BootstrapStatePort {
 
     private String serialised;
     private String adminPasswordHash;
+    private boolean adminMustChangePassword;
     private int saves;
     private int loads;
 
@@ -66,13 +67,14 @@ public final class InMemoryBootstrapStatePort implements BootstrapStatePort {
     }
 
     @Override
-    public synchronized EaOutcome<Done> claim(Claimed newState, String expectedPriorSerialised,
-            String passwordHash) {
-        if (!Objects.equals(serialised, expectedPriorSerialised)) {
+    public synchronized EaOutcome<Done> claim(Claimed newState, Optional<String> expectedPriorSerialised,
+            String passwordHash, boolean mustChangePassword) {
+        if (!Objects.equals(serialised, expectedPriorSerialised.orElse(null))) {
             return EaOutcome.refused("bootstrap state changed concurrently");
         }
         serialised = BootstrapRules.serialise(newState);
         adminPasswordHash = passwordHash;
+        adminMustChangePassword = mustChangePassword;
         return EaOutcome.done();
     }
 
@@ -92,6 +94,15 @@ public final class InMemoryBootstrapStatePort implements BootstrapStatePort {
      */
     public synchronized String adminPasswordHash() {
         return adminPasswordHash;
+    }
+
+    /**
+     * Returns the must-change-password flag set on the admin by the last claim.
+     *
+     * @return the flag, {@code false} if never claimed
+     */
+    public synchronized boolean adminMustChangePassword() {
+        return adminMustChangePassword;
     }
 
     /**

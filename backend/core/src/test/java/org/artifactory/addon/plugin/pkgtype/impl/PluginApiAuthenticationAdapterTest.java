@@ -30,14 +30,13 @@ class PluginApiAuthenticationAdapterTest {
 
     @Test
     void acceptanceRule() {
-        assertTrue(PluginApiAuthenticationAdapter.acceptsBasic(true, true, true, false, true, false, false));
-        assertFalse(PluginApiAuthenticationAdapter.acceptsBasic(false, true, true, false, true, false, false));
-        assertFalse(PluginApiAuthenticationAdapter.acceptsBasic(true, false, true, false, true, false, false));
-        assertFalse(PluginApiAuthenticationAdapter.acceptsBasic(true, true, false, false, true, false, false));
-        assertFalse(PluginApiAuthenticationAdapter.acceptsBasic(true, true, true, true, true, false, false));
-        assertFalse(PluginApiAuthenticationAdapter.acceptsBasic(true, true, true, false, false, false, false));
-        assertFalse(PluginApiAuthenticationAdapter.acceptsBasic(true, true, true, false, true, false, true));
-        assertTrue(PluginApiAuthenticationAdapter.acceptsBasic(true, true, true, false, true, true, true));
+        assertTrue(PluginApiAuthenticationAdapter.acceptsBasic(true, true, true, false, false, false));
+        assertFalse(PluginApiAuthenticationAdapter.acceptsBasic(false, true, true, false, false, false));
+        assertFalse(PluginApiAuthenticationAdapter.acceptsBasic(true, false, true, false, false, false));
+        assertFalse(PluginApiAuthenticationAdapter.acceptsBasic(true, true, false, false, false, false));
+        assertFalse(PluginApiAuthenticationAdapter.acceptsBasic(true, true, true, true, false, false));
+        assertFalse(PluginApiAuthenticationAdapter.acceptsBasic(true, true, true, false, false, true));
+        assertTrue(PluginApiAuthenticationAdapter.acceptsBasic(true, true, true, false, true, true));
     }
 
     @Test

@@ -153,7 +153,7 @@ public class GlobalStateProviderServiceTest extends ArtifactoryHomeBoundTest {
         responseMetadata = new StringKeyIgnoreCaseMultivaluedMap<>();
         when(res.getMetadata()).thenReturn(responseMetadata);
         when(containerRes.getHeaders()).thenReturn(responseMetadata);
-        when(accessService.isAdminUsingOldDefaultPassword()).thenReturn(false);
+        when(accessService.isInitialSetupRequired()).thenReturn(false);
         when(centralConfigService.getDescriptor()).thenReturn(new CentralConfigDescriptorImpl());
         setupCustomerUpdatesService();
         createContext();
@@ -452,16 +452,16 @@ public class GlobalStateProviderServiceTest extends ArtifactoryHomeBoundTest {
     }
 
     @Test
-    public void needToChangeAccessAdminPassword() {
+    public void initialSetupRequiredIsReported() {
         reset(securityService);
         when(securityService.isAdmin()).thenReturn(true);
         when(securityService.isAnonymous()).thenReturn(false);
         when(configsService.hasConfig(V213ConversionFailFunction.PSQL_NODE_PROPS_INDEX_MISSING_MARKER))
                 .thenReturn(true);
-        when(accessService.isAdminUsingOldDefaultPassword()).thenReturn(true);
-        Assert.assertTrue(toJsonFromList().contains(
-                "Your Artifactory server is configured with the default admin credentials. " +
-                        "It is highly recommended to change the default admin password"));
+        when(accessService.isInitialSetupRequired()).thenReturn(true);
+        String json = toJsonFromList();
+        Assert.assertTrue(json.contains("Initial setup has not been completed"), json);
+        Assert.assertFalse(json.contains("default admin"), json);
         reset(accessService);
     }
 

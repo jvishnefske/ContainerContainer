@@ -18,6 +18,7 @@ import org.artifactory.security.access.embedded.core.BootstrapRules.Source;
 import org.artifactory.security.access.embedded.core.BootstrapRules.Unclaimed;
 import org.artifactory.security.access.embedded.core.ClaimRateLimit;
 import org.artifactory.security.access.embedded.core.EaHashes;
+import org.artifactory.security.access.embedded.core.EaOutcome;
 import org.artifactory.security.access.embedded.core.PasswordPolicy;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -313,5 +314,82 @@ class AdminBootstrapServiceTest {
         Path supplied = Files.write(secrets.resolve("token"),
                 "operator-supplied-token-0123456789".getBytes(StandardCharsets.UTF_8));
         assertTrue(service(envWith(supplied), ClaimRateLimit.defaults()).start(T0).isOk());
+    }
+
+    private static UnaryOperator<String> envWithPassword(Path file) {
+        Map<String, String> vars = Map.of(AdminBootstrapService.PASSWORD_FILE_ENV, file.toString());
+        return vars::get;
+    }
+
+    @Test
+    void operatorSuppliedPasswordClaimsWithMustChangeAndNoTokenFile() throws IOException {
+        Path supplied = Files.writeString(secrets.resolve("password"), "  " + GOOD_PASSWORD + "\n");
+        AdminBootstrapService service = service(envWithPassword(supplied), ClaimRateLimit.defaults());
+
+        assertTrue(service.start(T0).isOk());
+
+        assertTrue(service.isClaimed());
+        assertTrue(port.adminMustChangePassword());
+        assertTrue(hasher.matches(GOOD_PASSWORD, port.adminPasswordHash()));
+        Claimed claimed = assertInstanceOf(Claimed.class, stored());
+        assertEquals(AdminBootstrapService.OPERATOR_SUPPLIED_CLIENT, claimed.clientIp());
+        assertEquals(T0, claimed.at());
+        assertEquals(List.of(AdminBootstrapService.OPERATOR_SUPPLIED_CLIENT), audited);
+        assertFalse(Files.exists(security.resolve(AdminBootstrapService.TOKEN_FILE_NAME)));
+        assertEquals(ClaimResult.REFUSED, service.claim("any-token-any-token-any", GOOD_PASSWORD, CLIENT, T0));
+    }
+
+    @Test
+    void operatorSuppliedPasswordDeletesAnEarlierGeneratedTokenFile() throws IOException {
+        assertTrue(service().start(T0).isOk());
+        assertTrue(Files.exists(security.resolve(AdminBootstrapService.TOKEN_FILE_NAME)));
+        Path supplied = Files.writeString(secrets.resolve("password"), GOOD_PASSWORD);
+
+        AdminBootstrapService service = service(envWithPassword(supplied), ClaimRateLimit.defaults());
+        assertTrue(service.start(T0.plusSeconds(5)).isOk());
+
+        assertTrue(service.isClaimed());
+        assertFalse(Files.exists(security.resolve(AdminBootstrapService.TOKEN_FILE_NAME)));
+        assertInstanceOf(Claimed.class, stored());
+    }
+
+    @Test
+    void operatorSuppliedPasswordIsIgnoredOnceClaimed() throws IOException {
+        AdminBootstrapService first = service();
+        first.start(T0);
+        assertEquals(ClaimResult.CLAIMED, first.claim(generatedToken(), GOOD_PASSWORD, CLIENT, T0));
+        String hash = port.adminPasswordHash();
+        Path supplied = Files.writeString(secrets.resolve("password"), "another-long-unusual-phrase-7");
+
+        AdminBootstrapService restarted = service(envWithPassword(supplied), ClaimRateLimit.defaults());
+        assertTrue(restarted.start(T0.plusSeconds(60)).isOk());
+
+        assertTrue(restarted.isClaimed());
+        assertEquals(hash, port.adminPasswordHash());
+        assertFalse(port.adminMustChangePassword());
+        assertEquals(CLIENT, assertInstanceOf(Claimed.class, stored()).clientIp());
+    }
+
+    @Test
+    void badOperatorSuppliedPasswordFileKeepsTheServerUnclaimed() throws IOException {
+        Path weak = Files.writeString(secrets.resolve("weak"), "passwordpassword");
+        Path shortOne = Files.writeString(secrets.resolve("short"), "short");
+        Path withUser = Files.writeString(secrets.resolve("user"), "my-admin-password-1");
+        Path big = Files.writeString(secrets.resolve("big"),
+                "x".repeat(AdminBootstrapService.MAX_SUPPLIED_FILE_BYTES + 1));
+        Path empty = Files.writeString(secrets.resolve("empty"), " \n");
+        Path missing = secrets.resolve("missing");
+        for (Path file : List.of(weak, shortOne, withUser, big, empty, missing)) {
+            AdminBootstrapService service = service(envWithPassword(file), ClaimRateLimit.defaults());
+            EaOutcome<?> outcome = service.start(T0);
+            assertFalse(outcome.isOk(), file.toString());
+            String reason = outcome.fold(v -> "", r -> r, op -> op);
+            assertTrue(reason.contains(AdminBootstrapService.PASSWORD_FILE_ENV), reason);
+            assertFalse(reason.contains("passwordpassword") || reason.contains("my-admin-password-1"), reason);
+            assertFalse(service.isClaimed());
+        }
+        assertNull(port.serialised());
+        assertNull(port.adminPasswordHash());
+        assertTrue(audited.isEmpty());
     }
 }

@@ -3,17 +3,16 @@ package org.artifactory.util;
 import lombok.experimental.UtilityClass;
 import lombok.extern.slf4j.Slf4j;
 import org.artifactory.api.config.CentralConfigService;
+import org.artifactory.api.context.ArtifactoryContext;
 import org.artifactory.api.context.ContextHelper;
 import org.artifactory.api.security.SecurityService;
 import org.artifactory.common.ConstantValues;
 import org.artifactory.config.AccessConfigHolder;
 import org.artifactory.factory.InfoFactoryHolder;
+import org.artifactory.security.PasswordPolicyChecker;
 import org.artifactory.security.SecurityInfo;
-import org.artifactory.security.UserInfo;
 import org.artifactory.security.access.AccessService;
 import org.artifactory.security.exceptions.LoginDisabledException;
-import org.jfrog.access.client.AccessClient;
-import org.jfrog.access.client.auth.exception.PasswordPolicyException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.LockedException;
 import org.springframework.security.web.authentication.www.BasicAuthenticationEntryPoint;
@@ -22,17 +21,20 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URISyntaxException;
-
-import static org.apache.commons.lang3.StringUtils.EMPTY;
-import static org.artifactory.api.security.SecurityService.DEFAULT_ADMIN_PASSWORD;
-import static org.artifactory.api.security.SecurityService.DEFAULT_ADMIN_USER;
+import java.util.Optional;
 
 /**
+ * Security helpers shared by the web and service layers. The password policy check
+ * ({@link #validatePasswordPolicy}) is the local IA6 policy; no password, including a default administrator
+ * password, is exempt from it.
+ *
  * @author Mor Merhav
  */
 @Slf4j
 @UtilityClass
 public class SecurityUtils {
+
+    private static final String POLICY_UNAVAILABLE = "the password policy is not available";
 
     public void forceEnableBasicAuthIfNeeded() {
         AccessService accessService = getAccessService();
@@ -113,35 +115,43 @@ public class SecurityUtils {
         return ContextHelper.get().beanForType(AccessService.class);
     }
 
+    /**
+     * Tells whether a new password passes the local password policy (IA6): at least 12 characters, not equal to or
+     * containing the username, not in the bundled common-password list. The check is delegated to the
+     * {@link PasswordPolicyChecker} bean and needs no network access. It fails closed: without an application
+     * context or checker bean the password is refused.
+     * <p>
+     * Use it where a password is set (changes, administrator resets); it is not a login-time gate.
+     *
+     * @param username the account name, or {@code null} when unknown
+     * @param password the candidate password
+     * @return {@code true} if the password is acceptable
+     */
     public boolean validatePasswordPolicy(String username, String password) {
-        AccessClient accessClient = getAccessService().getAccessClient();
-        boolean isPolicyEnforcementEnabled =
-                accessClient.config().getPasswordPolicyEnabled().isEnabled();
-        if (isPolicyEnforcementEnabled) {
-            if (isSkipPasswordPolicyValidation(username, password)) {
-                return true;
-            }
+        return passwordPolicyViolation(username, password).isEmpty();
+    }
 
+    /**
+     * Checks a new password against the local password policy, see {@link #validatePasswordPolicy}.
+     *
+     * @param username the account name, or {@code null} when unknown
+     * @param password the candidate password
+     * @return empty when acceptable, otherwise a message naming the violated rules (never the password)
+     */
+    public Optional<String> passwordPolicyViolation(String username, String password) {
+        ArtifactoryContext context = ContextHelper.get();
+        PasswordPolicyChecker checker = null;
+        if (context != null) {
             try {
-                accessClient.cachedAuth().verifyPassword(password);
-            } catch (PasswordPolicyException e) {
-                log.debug("Password Policy violated for user '{}': {}", username, e.getMessage());
-                return false;
+                checker = context.beanForType(PasswordPolicyChecker.class);
+            } catch (RuntimeException e) {
+                log.debug("Password policy checker is not available", e);
             }
         }
-
-        return true;
-    }
-
-    private boolean isSkipPasswordPolicyValidation(String username, String password) {
-        return isDefaultAdmin(username, password) || isDefaultAnonymous(username) || EMPTY.equals(username);
-    }
-
-    private boolean isDefaultAnonymous(String username) {
-        return UserInfo.isAnonymous(username);
-    }
-
-    private boolean isDefaultAdmin(String username, String password) {
-        return DEFAULT_ADMIN_USER.equals(username) && DEFAULT_ADMIN_PASSWORD.equals(password);
+        if (checker == null) {
+            log.warn("Password policy checker is not available; refusing the password of user '{}'", username);
+            return Optional.of(POLICY_UNAVAILABLE);
+        }
+        return checker.violation(username, password);
     }
 }

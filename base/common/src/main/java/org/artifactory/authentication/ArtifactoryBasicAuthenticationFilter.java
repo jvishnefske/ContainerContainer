@@ -28,7 +28,6 @@ import org.artifactory.api.context.ArtifactoryContext;
 import org.artifactory.api.security.AuthorizationService;
 import org.artifactory.api.security.SecurityService;
 import org.artifactory.security.UserInfo;
-import org.artifactory.util.SecurityUtils;
 import org.artifactory.webapp.servlet.RequestUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -88,11 +87,9 @@ public class ArtifactoryBasicAuthenticationFilter implements ArtifactoryAuthenti
     public boolean acceptFilter(ServletRequest request) {
         HttpServletRequest req = (HttpServletRequest) request;
 
+        // No password policy check here: the policy (IA6) applies when a password is set, and a Basic password
+        // may be an API key, a token or an external realm's password.
         String username = RequestUtils.extractUsernameFromRequest(request);
-        String password = RequestUtils.extractPasswordFromRequest(request);
-        if (!SecurityUtils.validatePasswordPolicy(username, password)) {
-            return false;
-        }
 
         String requestVariable = securityService.getHttpSsoRemoteUserRequestVariable();
         boolean sso = StringUtils

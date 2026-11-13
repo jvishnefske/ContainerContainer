@@ -70,6 +70,16 @@ import java.util.function.UnaryOperator;
  * A {@code Refused} decision (for example an expired operator-supplied token that is still supplied) is returned
  * to the caller; the server then stays unclaimed and the setup filter keeps every endpoint closed.
  * <p>
+ * <b>Operator-supplied temporary password</b> (IA5): when the server is unclaimed on start and
+ * {@value #PASSWORD_FILE_ENV} names a file, that file (at most {@value #MAX_SUPPLIED_FILE_BYTES} bytes, surrounding
+ * white space stripped) holds a temporary administrator password. If it passes the {@link PasswordPolicy}, the
+ * server is claimed with it in one {@link BootstrapStatePort#claim} transaction with the must-change-password flag
+ * set, so the first login of {@value #ADMIN_USERNAME} can only change the password. The claimed state and the audit
+ * event record {@value #OPERATOR_SUPPLIED_CLIENT} as the source, the password is never logged, and the generated
+ * setup-token file is deleted; {@value #TOKEN_FILE_ENV} is then ignored. An unreadable, oversized, empty or
+ * non-compliant password file is a {@code Refused} start: the server stays unclaimed (fail closed) until the
+ * operator fixes or removes the file. Once claimed, the variable is ignored on later starts.
+ * <p>
  * <b>Claim</b> ({@link #claim}): rate limit, password policy (username {@value #ADMIN_USERNAME}), token check,
  * hash, then {@link BootstrapStatePort#claim} in one transaction. A generated token file is then deleted; an
  * operator-supplied file is left alone (its token no longer works). The claim is audited through
@@ -92,7 +102,16 @@ public final class AdminBootstrapService {
     public static final String TOKEN_FILE_ENV = "INITIAL_ADMIN_TOKEN_FILE";
     /** The name of the generated setup-token file in the security directory. */
     public static final String TOKEN_FILE_NAME = "initial-admin.token";
-    /** The largest accepted supplied token file, in bytes. */
+    /**
+     * The environment variable naming an operator-supplied file with a temporary administrator password (IA5).
+     */
+    public static final String PASSWORD_FILE_ENV = "INITIAL_ADMIN_PASSWORD_FILE";
+    /**
+     * The client recorded in the claimed state and the audit event when the server is claimed with the
+     * operator-supplied temporary password.
+     */
+    public static final String OPERATOR_SUPPLIED_CLIENT = "operator-supplied:" + PASSWORD_FILE_ENV;
+    /** The largest accepted supplied token or password file, in bytes. */
     public static final int MAX_SUPPLIED_FILE_BYTES = 1024;
     /** The built-in administrator claimed by the setup token. */
     public static final String ADMIN_USERNAME = "admin";
@@ -233,6 +252,14 @@ public final class AdminBootstrapService {
             claimed = true;
             return EaOutcome.done();
         }
+        String passwordFile = env.apply(PASSWORD_FILE_ENV);
+        if (passwordFile != null && !passwordFile.isBlank()) {
+            EaOutcome<Done> operatorClaim = claimWithOperatorPassword(Path.of(passwordFile), stored, now);
+            if (!operatorClaim.isOk()) {
+                log.error("Initial admin setup could not start: {}", describe(operatorClaim));
+            }
+            return operatorClaim;
+        }
         EaOutcome<Optional<String>> supplied = readSupplied();
         EaOutcome<Done> result = supplied
                 .flatMap(token -> BootstrapRules.decideOnStart(stored, token, now, tokenTtl))
@@ -292,7 +319,8 @@ public final class AdminBootstrapService {
             log.warn("Initial admin claim from {} refused: password cannot be hashed", client);
             return ClaimResult.REFUSED;
         }
-        EaOutcome<Done> stored = port.claim(newState.get(), BootstrapRules.serialise(state), hash.get());
+        EaOutcome<Done> stored = port.claim(newState.get(), Optional.of(BootstrapRules.serialise(state)), hash.get(),
+                false);
         if (!stored.isOk()) {
             log.warn("Initial admin claim from {} refused: the claim could not be stored ({})", client,
                     describe(stored));
@@ -387,21 +415,67 @@ public final class AdminBootstrapService {
             return EaOutcome.ok(Optional.empty());
         }
         Path file = Path.of(location);
+        return readOperatorFile(TOKEN_FILE_ENV, file).flatMap(content -> {
+            Optional<String> token = BootstrapRules.normaliseSupplied(content);
+            return token.isEmpty() ? EaOutcome.refused(TOKEN_FILE_ENV + " file " + file + " is empty")
+                    : EaOutcome.ok(token);
+        });
+    }
+
+    /**
+     * Claims the server with the temporary password in {@code file} (IA5), see the class description. The
+     * password itself never appears in a log line or in a refusal reason.
+     */
+    private EaOutcome<Done> claimWithOperatorPassword(Path file, Optional<BootstrapState> stored, Instant now) {
+        EaOutcome<String> password = readOperatorFile(PASSWORD_FILE_ENV, file).flatMap(content -> {
+            String stripped = content.strip();
+            return stripped.isEmpty() ? EaOutcome.refused(PASSWORD_FILE_ENV + " file " + file + " is empty")
+                    : EaOutcome.ok(stripped);
+        });
+        if (!(password instanceof Ok<String> okPassword)) {
+            return password.flatMap(ignored -> EaOutcome.done());
+        }
+        EaOutcome<Done> verdict = policy.validate(ADMIN_USERNAME, okPassword.value());
+        if (!verdict.isOk()) {
+            return EaOutcome.refused("the temporary password in " + PASSWORD_FILE_ENV + " file " + file
+                    + " is refused: " + describe(verdict));
+        }
+        EaOutcome<String> hash = hasher.encode(okPassword.value());
+        if (!(hash instanceof Ok<String> okHash)) {
+            return EaOutcome.refused("the temporary password in " + PASSWORD_FILE_ENV + " file " + file
+                    + " cannot be hashed");
+        }
+        Claimed newState = new Claimed(now, OPERATOR_SUPPLIED_CLIENT);
+        EaOutcome<Done> claimedNow = port.claim(newState, stored.map(BootstrapRules::serialise), okHash.value(),
+                true);
+        if (!claimedNow.isOk()) {
+            return claimedNow;
+        }
+        current = newState;
+        claimed = true;
+        deleteTokenFile();
+        audit.accept(OPERATOR_SUPPLIED_CLIENT);
+        log.warn("Initial admin claimed with the operator-supplied temporary password from {} file {}; the "
+                + "password must be changed at the first login", PASSWORD_FILE_ENV, file);
+        return EaOutcome.done();
+    }
+
+    /**
+     * Reads a small operator-supplied file named by {@code envName}: at most {@value #MAX_SUPPLIED_FILE_BYTES}
+     * bytes, decoded as UTF-8. Refusal reasons name the variable and the path, never the content.
+     */
+    private static EaOutcome<String> readOperatorFile(String envName, Path file) {
         byte[] content;
         try (InputStream in = Files.newInputStream(file)) {
             content = in.readNBytes(MAX_SUPPLIED_FILE_BYTES + 1);
         } catch (IOException | RuntimeException e) {
-            return EaOutcome.refused("cannot read " + TOKEN_FILE_ENV + " file " + file + ": " + e);
+            return EaOutcome.refused("cannot read " + envName + " file " + file + ": " + e.getClass().getName());
         }
         if (content.length > MAX_SUPPLIED_FILE_BYTES) {
-            return EaOutcome.refused(TOKEN_FILE_ENV + " file " + file + " is larger than "
+            return EaOutcome.refused(envName + " file " + file + " is larger than "
                     + MAX_SUPPLIED_FILE_BYTES + " bytes");
         }
-        Optional<String> token = BootstrapRules.normaliseSupplied(new String(content, StandardCharsets.UTF_8));
-        if (token.isEmpty()) {
-            return EaOutcome.refused(TOKEN_FILE_ENV + " file " + file + " is empty");
-        }
-        return EaOutcome.ok(token);
+        return EaOutcome.ok(new String(content, StandardCharsets.UTF_8));
     }
 
     private ClaimRateLimit.Decision countAttempt(String client, Instant now) {

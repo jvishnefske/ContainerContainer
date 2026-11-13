@@ -179,6 +179,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.PropertyResourceBundle;
 import java.util.ResourceBundle;
 import java.util.Set;
@@ -189,6 +190,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static java.util.Optional.ofNullable;
@@ -243,6 +245,8 @@ public class SecurityServiceImpl implements InternalSecurityService {
     private AccessConverters accessConverters;
     private UserLockInMemoryService userLockInMemoryService;
     private ApiKeyManager apiKeyManager;
+    /** The local IA6 password policy, applied to every password this service sets. Pure and immutable. */
+    private final PasswordPolicyChecker passwordPolicy = new LocalPasswordPolicyChecker();
     private BuildFacade buildFacade;
     private ArtifactoryGroupCachingRepoImpl groupCachingRepo;
     private ApplicationEventPublisher publisher;
@@ -976,6 +980,30 @@ public class SecurityServiceImpl implements InternalSecurityService {
         }
     }
 
+    /** A new password refused by the policy in {@link #changePassword}, whose message the caller may see. */
+    private static final class PasswordPolicyRefusal extends PasswordChangeException {
+        PasswordPolicyRefusal(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Refuses a new password that fails the local password policy (IA6). The message names the violated rules,
+     * never the password.
+     *
+     * @param username the account the password is for
+     * @param password the new raw password
+     * @param failure  builds the exception thrown on a violation
+     */
+    private void enforcePasswordPolicy(String username, String password,
+            Function<String, ? extends RuntimeException> failure) {
+        Optional<String> violation = passwordPolicy.violation(username, password);
+        if (violation.isPresent()) {
+            log.warn("Refusing a new password for user '{}': {}", username, violation.get());
+            throw failure.apply("New password refused: " + violation.get());
+        }
+    }
+
     /**
      * Locks user upon incorrect login attempt
      */
@@ -1325,8 +1353,15 @@ public class SecurityServiceImpl implements InternalSecurityService {
         return createUser(user, true);
     }
 
+    /**
+     * Creates a user. A user created with a password must pass the local password policy (IA6), otherwise an
+     * {@link IllegalArgumentException} names the violated rules and nothing is stored.
+     */
     private boolean createUser(MutableUserInfo user, boolean addUserProperties) {
         user.setUsername(user.getUsername().toLowerCase());
+        if (MustChangePasswordRules.carriesNewPassword(user.getPassword(), null, user.isPasswordDisabled())) {
+            enforcePasswordPolicy(user.getUsername(), user.getPassword(), IllegalArgumentException::new);
+        }
         flagIfPasswordSetByAnotherAdministrator(user, null);
         try {
             boolean userCreated = userGroupStoreService.createUserWithProperties(user, addUserProperties);
@@ -1358,7 +1393,8 @@ public class SecurityServiceImpl implements InternalSecurityService {
     /**
      * Changes user password. The holder must supply the current password, and the new one must differ from it. On
      * success the must-change-password flag ({@link UserInfo#isMustChangePassword()}) is cleared, so this is how a
-     * holder of a temporary password regains full use of the account.
+     * holder of a temporary password regains full use of the account. Once the old password is verified, the new
+     * one must pass the local password policy (IA6); a refusal names the violated rules.
      *
      * @param userName     user name
      * @param oldPassword  old password
@@ -1376,6 +1412,7 @@ public class SecurityServiceImpl implements InternalSecurityService {
             ensureLoginShouldNotBeDelayed(userName);
 
             if (isOldPasswordValid(findUser(userName), oldPassword, newPassword1, newPassword2)) {
+                enforcePasswordPolicy(userName, newPassword1, PasswordPolicyRefusal::new);
                 changePasswordWithoutValidation(user, newPassword1);
                 if (user.isMustChangePassword()) {
                     // isOldPasswordValid refused a new password equal to the temporary one
@@ -1384,9 +1421,11 @@ public class SecurityServiceImpl implements InternalSecurityService {
             }
 
             if (ADMIN_DEFAULT_USERNAME.equals(userName)) {
-                accessService.invalidateAdminUsingOldDefaultPasswordCache();
                 globalStateProviderService.invalidateCache();
             }
+        } catch (PasswordPolicyRefusal e) {
+            // Only after the old password was verified: the caller may learn why the new one was refused.
+            throw new PasswordChangeException(e.getMessage());
         } catch (RuntimeException e) {
             log.error(e.getMessage());
             log.debug(ERR_CAUSE, e);
@@ -1399,8 +1438,9 @@ public class SecurityServiceImpl implements InternalSecurityService {
     }
 
     /**
-     * Changes user password without validating old password. When the current user is an administrator setting
-     * another user's password, the must-change-password flag is set on that user. It is never cleared here.
+     * Changes user password without validating old password. The new password must pass the local password policy
+     * (IA6). When the current user is an administrator setting another user's password, the must-change-password
+     * flag is set on that user. It is never cleared here.
      *
      * @param user        user to change password to
      * @param newPassword new password
@@ -1408,6 +1448,7 @@ public class SecurityServiceImpl implements InternalSecurityService {
     @Override
     public void changePasswordWithoutValidation(@Nonnull UserInfo user, String newPassword)
             throws PasswordChangeException {
+        enforcePasswordPolicy(user.getUsername(), newPassword, PasswordChangeException::new);
         try {
             if (user.isPasswordDisabled()) {
                 throw new IllegalStateException("The specified user is not permitted to reset his password.");
@@ -1457,17 +1498,24 @@ public class SecurityServiceImpl implements InternalSecurityService {
     }
 
     /**
-     * Updates a user. When the current user is an administrator writing a new password for another user, the
+     * Updates a user. A new password (one that differs from the stored one) must pass the local password policy
+     * (IA6). When the current user is an administrator writing a new password for another user, the
      * must-change-password flag is set on that user. A full update never clears the flag.
      */
     @Override
     public void updateUser(MutableUserInfo user, boolean activateListeners) {
         String userName = user.getUsername().toLowerCase();
         user.setUsername(userName);
-        if (MustChangePasswordRules.isWrittenByAnotherAdministrator(currentUsername(), isAdmin(), userName)
-                && MustChangePasswordRules.carriesNewPassword(user.getPassword(), null, user.isPasswordDisabled())) {
+        if (MustChangePasswordRules.carriesNewPassword(user.getPassword(), null, user.isPasswordDisabled())) {
             UserInfo stored = userGroupStoreService.findUser(userName);
-            flagIfPasswordSetByAnotherAdministrator(user, stored != null ? stored.getPassword() : null);
+            String storedPassword = stored != null ? stored.getPassword() : null;
+            if (MustChangePasswordRules.carriesNewPassword(user.getPassword(), storedPassword,
+                    user.isPasswordDisabled())) {
+                enforcePasswordPolicy(userName, user.getPassword(), IllegalArgumentException::new);
+            }
+            if (MustChangePasswordRules.isWrittenByAnotherAdministrator(currentUsername(), isAdmin(), userName)) {
+                flagIfPasswordSetByAnotherAdministrator(user, storedPassword);
+            }
         }
         userGroupStoreService.updateUser(user);
         if (activateListeners) {

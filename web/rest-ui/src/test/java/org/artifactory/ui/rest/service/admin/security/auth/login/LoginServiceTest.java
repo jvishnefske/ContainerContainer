@@ -21,7 +21,6 @@
 package org.artifactory.ui.rest.service.admin.security.auth.login;
 
 import org.apache.commons.io.FileUtils;
-import org.apache.http.HttpStatus;
 import org.artifactory.addon.AddonsManager;
 import org.artifactory.addon.curation.CurationAddon;
 import org.artifactory.addon.plugin.PluginsAddon;
@@ -184,7 +183,6 @@ class LoginServiceTest {
 
 
         try (MockedStatic<SecurityUtils> securityUtils = mockStatic(SecurityUtils.class)) {
-            securityUtils.when(() -> SecurityUtils.validatePasswordPolicy(any(), any())).thenReturn(true);
 
             loginService.doExecute(requestMock, responseMock);
             verify(getSecurityConfigService, times(1)).execute(requestMock, responseMock);
@@ -209,7 +207,6 @@ class LoginServiceTest {
         prepareAddonsManager();
         prepareAuthorizationService();
         try (MockedStatic<SecurityUtils> securityUtils = mockStatic(SecurityUtils.class)) {
-            securityUtils.when(() -> SecurityUtils.validatePasswordPolicy(any(), any())).thenReturn(true);
 
             Assertions.assertThrows(AuthenticationServiceException.class, () -> {
                 loginService.doExecute(requestMock, responseMock);
@@ -235,7 +232,6 @@ class LoginServiceTest {
         prepareAuthorizationService();
 
         try (MockedStatic<SecurityUtils> securityUtils = mockStatic(SecurityUtils.class)) {
-            securityUtils.when(() -> SecurityUtils.validatePasswordPolicy(any(), any())).thenReturn(true);
 
             Assertions.assertThrows(AuthenticationServiceException.class, () -> {
                 loginService.doExecute(requestMock, responseMock);
@@ -267,7 +263,6 @@ class LoginServiceTest {
         when(responseMock.getServletResponse()).thenReturn(servletResponse);
 
         try (MockedStatic<SecurityUtils> securityUtils = mockStatic(SecurityUtils.class)) {
-            securityUtils.when(() -> SecurityUtils.validatePasswordPolicy(any(), any())).thenReturn(true);
 
             loginService.doExecute(requestMock, responseMock);
             verify(servletResponse, times(1)).addHeader(anyString(), anyString());
@@ -297,7 +292,6 @@ class LoginServiceTest {
         when(responseMock.getIModel()).thenCallRealMethod();
 
         try (MockedStatic<SecurityUtils> securityUtils = mockStatic(SecurityUtils.class)) {
-            securityUtils.when(() -> SecurityUtils.validatePasswordPolicy(any(), any())).thenReturn(true);
 
             loginService.doExecute(requestMock, responseMock);
         }
@@ -330,7 +324,6 @@ class LoginServiceTest {
         when(securityService.isResourceManager()).thenReturn(isResourceManager);
 
         try (MockedStatic<SecurityUtils> securityUtils = mockStatic(SecurityUtils.class)) {
-            securityUtils.when(() -> SecurityUtils.validatePasswordPolicy(any(), any())).thenReturn(true);
             loginService.doExecute(requestMock, responseMock);
         }
 
@@ -391,21 +384,5 @@ class LoginServiceTest {
         ArtifactoryHomeStub.getArtifactoryProperties().setProperty("artifactory.security.disableRememberMe", "true");
         ArtifactoryHomeStub.getArtifactoryProperties().setProperty("version.query.enabled", "false");
         ArtifactoryHomeStub.bind(ArtifactoryHomeStub);
-    }
-
-    @Test
-    void testPasswordPolicyNotHeld() {
-        UserLogin user = new UserLogin("myuser");
-        user.setPassword("password");
-        when(requestMock.getImodel()).thenReturn(user);
-        ArtifactoryRestResponse response = new ArtifactoryRestResponse();
-
-        try (MockedStatic<SecurityUtils> securityUtils = mockStatic(SecurityUtils.class)) {
-            securityUtils.when(() -> SecurityUtils.validatePasswordPolicy(any(), any())).thenReturn(false);
-
-            loginService.doExecute(requestMock, response);
-            assertEquals(HttpStatus.SC_UNAUTHORIZED, response.getResponseCode());
-            assertEquals("Password Policy validation failed", response.getFeedbackMsg().getError());
-        }
     }
 }

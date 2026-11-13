@@ -199,6 +199,12 @@ public enum ConstantValues {
     deprecatedPermissionsApiV2Disabled("security.deprecated.permissions.api.v2.disabled", FALSE),
     /** Lifetime in hours of the one-time initial-admin setup token (IA2). */
     securityInitialAdminTokenTtlHours("security.initialAdmin.tokenTtlHours", 24),
+    /**
+     * Comma-separated external group names whose members are administrators when a plugin realm (such as the WASM
+     * OIDC module) authenticates them, once the server is claimed (IA7). Empty by default: no external group maps to
+     * administrator unless an operator says so here.
+     */
+    securityExternalAdminGroups("security.externalAdminGroups", ""),
     ldapMaxPageSize("ldap.max.page.size", 1000),
     ldapPagingSupport("ldap.paging.support", TRUE),
     ldapDisablePagingSupportPeriodMinutes("ldap.disable.paging.support.period.minutes", 10),
@@ -1249,7 +1255,6 @@ public enum ConstantValues {
     goRemoteCacheCleanupAge("go.remote.cache.cleanup.age", TimeUnit.DAYS.toMillis(7)),
     dbSessionCleanupCron("db.session.cleanup.cron", null),
     nativeUiSearchMaxTimeMillis("native.ui.search.max.time.millis", 60_000),
-    accessAdminDefaultPasswordCheckPeriod("access.admin.default.password.check.period.millis", 60_000),
     signedUrlForCdnValidForSeconds("signed.url.cdn.validForSecs", 30L),
     signedUrlValidForSeconds("signed.url.validForSecs", TimeUnit.DAYS.toSeconds(1)),
     signedUrlUiDownloadValidForSeconds("signed.url.ui.download.valid.for.secs", TimeUnit.MINUTES.toSeconds(5)),

@@ -162,7 +162,7 @@ class GlobalStateProviderServiceImpl implements GlobalStateProviderService, Enti
                     decorateWithFreeTierMessages(list);
                     decorateWithCustomMessage(list);
                     decorateWithPsqlIndexMismatch(list, configsService);
-                    decorateNeedToChangeAdminPassword(list, accessService);
+                    decorateInitialSetupRequired(list, accessService);
                     decorateJcrAndEulaNotSigned(list, addonsManager);
                     decorateWithDockerhubCredentialsRecommendation(list, repositoryConfigService);
                     decorateNeedToEnableBasicAuth(list);
@@ -264,15 +264,17 @@ class GlobalStateProviderServiceImpl implements GlobalStateProviderService, Enti
         }
     }
 
-    private void decorateNeedToChangeAdminPassword(List<FooterMessage> list, AccessService accessService) {
-        if (accessService.isAdminUsingOldDefaultPassword()) {
+    /**
+     * Warns administrators while the server is not claimed (IA1). There is no default administrator password to
+     * warn about any more; the setup filter normally keeps an unclaimed server's UI closed, so this is a fallback.
+     */
+    private void decorateInitialSetupRequired(List<FooterMessage> list, AccessService accessService) {
+        if (accessService.isInitialSetupRequired()) {
             String message =
-                    "Your Artifactory server is configured with the default admin credentials." +
-                            " It is highly recommended to change the default admin password." +
-                            " You can change the password from the " + URL_PLACEHOLDER +
-                            ".";
+                    "Initial setup has not been completed: the administrator account has no password yet." +
+                            " Claim the server with the one-time setup token.";
             FooterMessage footerMessage = FooterMessage
-                    .createDismissibleError("Admin Notice", message, List.of(changeDefaultAdminPassword()),
+                    .createDismissibleError("Admin Notice", message, List.of(),
                             FooterMessage.FooterMessageVisibility.admin);
             list.add(footerMessage);
         }
@@ -315,12 +317,6 @@ class GlobalStateProviderServiceImpl implements GlobalStateProviderService, Enti
                 "https://www.jfrog.com/confluence/display/RTF/Troubleshooting#Troubleshooting-RecoveringfromError" +
                         ":AnincompatibleindexhasbeenfoundfortheArtifactory%E2%80%98node_props%E2%80%99databasetable",
                 "click here");
-    }
-
-    private FooterLink changeDefaultAdminPassword() {
-        return new FooterLink(
-                "/ui/admin/management/users/admin/edit",
-                "User Management page");
     }
 
     private FooterLink disableBasicAuthentication() {

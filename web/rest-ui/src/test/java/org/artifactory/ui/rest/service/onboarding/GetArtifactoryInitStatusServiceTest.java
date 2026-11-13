@@ -4,7 +4,6 @@ import org.apache.http.HttpStatus;
 import org.artifactory.addon.AddonsManager;
 import org.artifactory.addon.eula.EulaService;
 import org.artifactory.api.config.CentralConfigService;
-import org.artifactory.api.security.UserGroupService;
 import org.artifactory.common.ConstantValues;
 import org.artifactory.common.config.db.ArtifactoryCommonDbPropertiesService;
 import org.artifactory.common.storage.db.properties.DbVersionInfo;
@@ -37,10 +36,8 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -54,8 +51,6 @@ public class GetArtifactoryInitStatusServiceTest extends ArtifactoryHomeBoundTes
     private AddonsManager addonsManager;
     @Mock(answer = Answers.RETURNS_DEEP_STUBS)
     private CentralConfigService configService;
-    @Mock
-    private UserGroupService userGroupService;
     @Mock(answer = Answers.RETURNS_DEEP_STUBS)
     private AccessService accessService;
     @Mock
@@ -64,8 +59,6 @@ public class GetArtifactoryInitStatusServiceTest extends ArtifactoryHomeBoundTes
     private ArtifactoryCommonDbPropertiesService artifactoryCommonDbPropertiesService;
     @Mock
     private CentralConfigDescriptor configDescriptor;
-    @Mock
-    private UserInfo currentUser;
 
     private GetArtifactoryInitStatusService getArtifactoryInitStatusService;
     private AutoCloseable mocks;
@@ -76,7 +69,6 @@ public class GetArtifactoryInitStatusServiceTest extends ArtifactoryHomeBoundTes
         getArtifactoryInitStatusService = new GetArtifactoryInitStatusService(
                 addonsManager,
                 configService,
-                userGroupService,
                 accessService,
                 eulaService,
                 artifactoryCommonDbPropertiesService);
@@ -86,8 +78,6 @@ public class GetArtifactoryInitStatusServiceTest extends ArtifactoryHomeBoundTes
         when(configDescriptor.getProxies()).thenReturn(Collections.emptyList());
         when(eulaService.isRequired()).thenReturn(false);
         when(artifactoryCommonDbPropertiesService.getAllDbVersionInfo()).thenReturn(Collections.emptyList());
-        when(userGroupService.currentUser()).thenReturn(currentUser);
-        when(currentUser.getUsername()).thenReturn("admin");
     }
 
     @AfterMethod
@@ -108,76 +98,27 @@ public class GetArtifactoryInitStatusServiceTest extends ArtifactoryHomeBoundTes
     }
 
     /**
-     * On SaaS (AOL) the default-password probe must never run, and the field must always be {@code false} —
-     * the result is meaningless on SaaS and was tripping external scanners.
+     * The onboarding state reports {@code initialSetupRequired} from the bootstrap state and never probes Access
+     * with a default password (IA1).
      */
     @Test
-    public void executeOnSaasForcesHasDefaultPasswordToFalseAndSkipsAccessProbe() {
-        try (MockedStatic<AolUtils> aolMock = org.mockito.Mockito.mockStatic(AolUtils.class);
-                MockedStatic<AuthenticationHelper> authMock =
+    public void executeReportsInitialSetupRequiredWithoutAnyPasswordProbe() {
+        for (boolean required : new boolean[] {true, false}) {
+            try (MockedStatic<AuthenticationHelper> authMock =
                         org.mockito.Mockito.mockStatic(AuthenticationHelper.class);
-                MockedStatic<FirstStartupHelper> firstStartupMock =
-                        org.mockito.Mockito.mockStatic(FirstStartupHelper.class)) {
-            aolMock.when(AolUtils::isAol).thenReturn(true);
-            authMock.when(AuthenticationHelper::getAuthentication).thenReturn(authenticatedUser("admin"));
-            firstStartupMock.when(FirstStartupHelper::onlyDefaultReposExist).thenReturn(true);
+                    MockedStatic<FirstStartupHelper> firstStartupMock =
+                            org.mockito.Mockito.mockStatic(FirstStartupHelper.class)) {
+                authMock.when(AuthenticationHelper::getAuthentication).thenReturn(authenticatedUser("admin"));
+                firstStartupMock.when(FirstStartupHelper::onlyDefaultReposExist).thenReturn(false);
+                when(accessService.isInitialSetupRequired()).thenReturn(required);
 
-            RestResponse response = executeService();
+                RestResponse response = executeService();
 
-            ArtifactoryInitStatusModel model = (ArtifactoryInitStatusModel) response.getIModel();
-            Assert.assertNotNull(model, "expected a model on the success response");
-            Assert.assertFalse(model.isHasDefaultPassword(), "hasDefaultPassword must be false on SaaS");
-            verify(accessService, never()).getAccessClient();
-        }
-    }
-
-    /**
-     * Self-hosted runtime + flag default {@code true} + authenticated caller: the probe runs and surfaces
-     * {@code hasDefaultPassword=true} when Access accepts the well-known default password.
-     */
-    @Test
-    public void executeOnSelfHostedReportsHasDefaultPasswordWhenAccessAcceptsDefault() {
-        try (MockedStatic<AolUtils> aolMock = org.mockito.Mockito.mockStatic(AolUtils.class);
-                MockedStatic<AuthenticationHelper> authMock =
-                        org.mockito.Mockito.mockStatic(AuthenticationHelper.class);
-                MockedStatic<FirstStartupHelper> firstStartupMock =
-                        org.mockito.Mockito.mockStatic(FirstStartupHelper.class)) {
-            aolMock.when(AolUtils::isAol).thenReturn(false);
-            authMock.when(AuthenticationHelper::getAuthentication).thenReturn(authenticatedUser("admin"));
-            firstStartupMock.when(FirstStartupHelper::onlyDefaultReposExist).thenReturn(false);
-
-            RestResponse response = executeService();
-
-            ArtifactoryInitStatusModel model = (ArtifactoryInitStatusModel) response.getIModel();
-            Assert.assertNotNull(model);
-            Assert.assertTrue(model.isHasDefaultPassword(),
-                    "hasDefaultPassword must be true when Access accepts the default password");
-            verify(accessService.getAccessClient().cachedAuth(), times(1)).authenticate(any());
-        }
-    }
-
-    /**
-     * Self-hosted runtime: when Access rejects the default password, hasDefaultPassword stays false but the
-     * model is still produced.
-     */
-    @Test
-    public void executeOnSelfHostedReportsFalseWhenAccessRejectsDefault() {
-        try (MockedStatic<AolUtils> aolMock = org.mockito.Mockito.mockStatic(AolUtils.class);
-                MockedStatic<AuthenticationHelper> authMock =
-                        org.mockito.Mockito.mockStatic(AuthenticationHelper.class);
-                MockedStatic<FirstStartupHelper> firstStartupMock =
-                        org.mockito.Mockito.mockStatic(FirstStartupHelper.class)) {
-            aolMock.when(AolUtils::isAol).thenReturn(false);
-            authMock.when(AuthenticationHelper::getAuthentication).thenReturn(authenticatedUser("admin"));
-            firstStartupMock.when(FirstStartupHelper::onlyDefaultReposExist).thenReturn(false);
-            when(accessService.getAccessClient().cachedAuth().authenticate(any()))
-                    .thenThrow(new RuntimeException("bad password"));
-
-            RestResponse response = executeService();
-
-            ArtifactoryInitStatusModel model = (ArtifactoryInitStatusModel) response.getIModel();
-            Assert.assertNotNull(model);
-            Assert.assertFalse(model.isHasDefaultPassword());
+                ArtifactoryInitStatusModel model = (ArtifactoryInitStatusModel) response.getIModel();
+                Assert.assertNotNull(model);
+                Assert.assertEquals(model.isInitialSetupRequired(), required);
+                verify(accessService, never()).getAccessClient();
+            }
         }
     }
 
@@ -235,7 +176,6 @@ public class GetArtifactoryInitStatusServiceTest extends ArtifactoryHomeBoundTes
             aolMock.when(AolUtils::isAol).thenReturn(false);
             authMock.when(AuthenticationHelper::getAuthentication).thenReturn(authenticatedUser(UserInfo.ANONYMOUS));
             firstStartupMock.when(FirstStartupHelper::onlyDefaultReposExist).thenReturn(false);
-            when(currentUser.getUsername()).thenReturn(UserInfo.ANONYMOUS);
 
             RestResponse response = executeService();
 

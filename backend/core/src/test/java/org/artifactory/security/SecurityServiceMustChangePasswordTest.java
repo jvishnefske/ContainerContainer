@@ -139,7 +139,6 @@ class SecurityServiceMustChangePasswordTest extends ArtifactoryHomeBoundJUnitTes
         authenticateAs("bob", true);
         service.updateUser(bob(false), true);
         assertFalse(updatedUser().isMustChangePassword());
-        verify(store, never()).findUser(anyString());
     }
 
     @Test

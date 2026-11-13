@@ -199,6 +199,36 @@ class PluginRealmAuthenticationProviderTest {
         assertTrue(directory.writes.isEmpty());
     }
 
+    private PluginRealmAuthenticationProvider providerWithAdminMapping(ExternalAdminMapping mapping) {
+        return new PluginRealmAuthenticationProvider(new PluginRealmAuthenticator(
+                () -> rig.engine.snapshot().realms(), directory,
+                (p, w, e) -> rig.reports.add(new PluginTestRig.Report(p, w, e)), () -> NOW, () -> mapping));
+    }
+
+    @Test
+    void externalAdminGroupsGrantAdminForTheAuthenticationOnlyOnceClaimed() throws Exception {
+        loadPlugin();
+        Authentication auth = providerWithAdminMapping(ExternalAdminMapping.of(true, "ghosts"))
+                .claim(bearer(token("jit"))).orElseThrow();
+        assertTrue(((SimpleUser) auth.getPrincipal()).isEffectiveAdmin());
+        assertEquals(Set.of("readers"), groups(auth));
+        assertFalse(directory.users.get("oidc-jit").isAdmin(), "the admin right is never stored");
+
+        Authentication unclaimed = providerWithAdminMapping(ExternalAdminMapping.of(false, "ghosts"))
+                .claim(bearer(token("jit"))).orElseThrow();
+        assertFalse(((SimpleUser) unclaimed.getPrincipal()).isEffectiveAdmin());
+        Authentication otherGroup = providerWithAdminMapping(ExternalAdminMapping.of(true, "Ghosts, nobody"))
+                .claim(bearer(token("jit"))).orElseThrow();
+        assertFalse(((SimpleUser) otherGroup.getPrincipal()).isEffectiveAdmin());
+    }
+
+    @Test
+    void externalAdminGroupsNeverLetARealmAuthenticateAnExistingAdministrator() throws Exception {
+        loadPlugin();
+        PluginRealmAuthenticationProvider mapped = providerWithAdminMapping(ExternalAdminMapping.of(true, "ghosts"));
+        assertThrows(PluginRealmRejectedException.class, () -> mapped.claim(bearer(token("admin"))));
+    }
+
     @Test
     void accessIssuedTokensAreNeverShownToPlugins() throws Exception {
         loadPlugin();

@@ -26,6 +26,7 @@
 # names are removed first, and everything is removed again on exit.
 #
 # Usage: docker/it/run-wasm-it.sh   (env: SKIP_BUILD=1, IMAGE, LOG_DIR keeps container logs, TMPDIR)
+# Requires ADMIN_USER and ADMIN_PASSWORD in the environment: no default administrator credential is shipped.
 # Exit status: 0 when every assertion passes, 1 otherwise.
 set -uo pipefail
 
@@ -42,7 +43,10 @@ TRUSTED_DIR=$VAR/etc/security/keys/trusted
 MODULE="$ROOT/backend/core/src/test/resources/wasm/echo-realm.wasm"
 STUB_HOST=stub.wasm-it.test
 ISSUER=echo-it
-ADMIN=admin:password
+# Administrator credentials come from the environment; no default is shipped (design IA1).
+: "${ADMIN_USER:?set ADMIN_USER (and ADMIN_PASSWORD) to the administrator credentials of the server under test}"
+: "${ADMIN_PASSWORD:?set ADMIN_PASSWORD to the password of ADMIN_USER; there is no default password}"
+ADMIN="$ADMIN_USER:$ADMIN_PASSWORD"
 MINT_SECONDS=300
 STARTUP_TIMEOUT=600
 LOG_DIR="${LOG_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/rt-wasm-it-logs.XXXXXX")}"

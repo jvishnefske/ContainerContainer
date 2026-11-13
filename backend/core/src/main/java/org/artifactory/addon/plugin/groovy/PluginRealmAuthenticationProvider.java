@@ -11,13 +11,16 @@
 
 package org.artifactory.addon.plugin.groovy;
 
+import org.artifactory.api.context.ContextHelper;
 import org.artifactory.api.security.UserGroupService;
+import org.artifactory.common.ConstantValues;
 import org.artifactory.security.GroupInfo;
 import org.artifactory.security.InternalUsernamePasswordAuthenticationToken;
 import org.artifactory.security.PluginRealmGateway;
 import org.artifactory.security.RealmAwareAuthenticationProvider;
 import org.artifactory.security.UserGroupInfo;
 import org.artifactory.security.UserInfo;
+import org.artifactory.security.access.embedded.bootstrap.AdminBootstrapService;
 import org.artifactory.security.props.auth.OauthManager;
 import org.artifactory.security.props.auth.PropsAuthenticationToken;
 import org.springframework.beans.factory.ObjectProvider;
@@ -71,7 +74,23 @@ public class PluginRealmAuthenticationProvider implements RealmAwareAuthenticati
                 () -> realmsOf(addon.getIfAvailable()),
                 new LazyDirectory(userGroupService),
                 HookFailureReporter.logging(),
-                () -> System.currentTimeMillis() / 1000));
+                () -> System.currentTimeMillis() / 1000,
+                PluginRealmAuthenticationProvider::currentAdminMapping));
+    }
+
+    /**
+     * The external administrator mapping in effect now (IA7): the groups configured in
+     * {@link ConstantValues#securityExternalAdminGroups}, effective only once {@link AdminBootstrapService} reports
+     * the server claimed. With no groups configured the bootstrap state is not even looked up.
+     */
+    static ExternalAdminMapping currentAdminMapping() {
+        Set<String> groups = ExternalAdminMapping.parseGroups(ConstantValues.securityExternalAdminGroups.getString());
+        if (groups.isEmpty()) {
+            return ExternalAdminMapping.DISABLED;
+        }
+        boolean claimed = AdminBootstrapService.lookup(ContextHelper.get())
+                .map(AdminBootstrapService::isClaimed).orElse(false);
+        return new ExternalAdminMapping(claimed, groups);
     }
 
     /** Wires the provider to an explicit authenticator; used by tests. */

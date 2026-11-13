@@ -236,7 +236,7 @@ jobs {
 /**
  * A section for defining external executions.
  * External executions are invoked via REST POST requests. For example:
- * curl -X POST -v -u admin:password "http://localhost:8080/artifactory/api/plugins/execute/multiply?params=msg=And+the+result+is:|no1=10|no2=15&async=0"
+ * curl -X POST -v -u admin "http://localhost:8080/artifactory/api/plugins/execute/multiply?params=msg=And+the+result+is:|no1=10|no2=15&async=0"
  *
  * Since:  2.3.1
  */

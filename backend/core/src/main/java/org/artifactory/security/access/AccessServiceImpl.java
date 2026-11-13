@@ -31,7 +31,6 @@ import jakarta.annotation.Nullable;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
-import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.http.HttpStatus;
@@ -86,6 +85,7 @@ import org.artifactory.security.SimpleUser;
 import org.artifactory.security.UserGroupInfo;
 import org.artifactory.security.UserInfo;
 import org.artifactory.security.access.convertor.LdapArtifactoryAndAccessConvertor;
+import org.artifactory.security.access.embedded.bootstrap.AdminBootstrapService;
 import org.artifactory.security.access.migration.populator.PatchYamlAccessConfigMigrationService;
 import org.artifactory.spring.ContextCreationListener;
 import org.artifactory.spring.EntitlementsEventListener;
@@ -133,7 +133,6 @@ import org.jfrog.access.rest.imports.ImportEntitiesRequest;
 import org.jfrog.access.rest.system.MTlsConfigurationModel;
 import org.jfrog.access.rest.system.UserLockPolicyConfig;
 import org.jfrog.access.rest.user.CustomDatumRequestImpl;
-import org.jfrog.access.rest.user.LoginRequest;
 import org.jfrog.access.rest.user.UserRegistrationRequestImpl;
 import org.jfrog.access.router.RouterGrpcClient;
 import org.jfrog.access.router.registration.RouterRegistrationData;
@@ -220,7 +219,6 @@ import static org.artifactory.storage.db.security.service.access.UserPropertiesS
 import static org.jfrog.access.client.proxy.GrpcProxyClientImpl.PROXY_SETTINGS_ALL_KEY;
 import static org.jfrog.access.common.SubjectFQN.USERS_NAME_PART;
 import static org.jfrog.access.token.JwtAccessToken.SCOPE_DELIMITER;
-import static org.jfrog.access.util.AccessCredsFileHelper.ADMIN_DEFAULT_USERNAME;
 import static org.jfrog.config.home.JFrogHome.ETC_FOLDER;
 import static org.jfrog.security.file.SecurityFolderHelper.PERMISSIONS_MODE_644;
 import static org.jfrog.security.file.SecurityFolderHelper.setPermissionsOnSecurityFile;
@@ -248,7 +246,6 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
     private static final Pattern SCOPE_ARTIFACTORY_COLD_PATTERN = Pattern.compile(SCOPE_ARTIFACTORY_COLD);
     private static final Pattern SCOPE_ARTIFACTORY_FEDERATED_REPO_PATTERN =
             Pattern.compile(SCOPE_ARTIFACTORY_FEDERATED_REPO);
-    private static final String DEFAULT_ADMIN_PASSWORD = "password";
     private static final String USER_TOKEN_CREATION_ERROR_MESSAGE =
             "The user: '%s' can only create user token(s) for themselves (requested: %s)";
     private static final String PASSWORD_CHANGE_REQUIRED_TOKEN_ERROR_MESSAGE =
@@ -299,8 +296,6 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
     private volatile AuthSettingsClient authSettingsClient;
     private String accessServerName;
     private ArtifactoryAccessClientConfigStore configStore;
-    private long lastAdminSecurityIssueCheck;
-    private Boolean hasAdminSecurityIssue;
     private final ArtifactoryContext context;
     private final Set<AccessClientUpdateListener> accessClientUpdateListeners = new HashSet<>();
 
@@ -584,7 +579,6 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
                 artifactoryHome.getSysConfig().helper().getBootstrapKeyReadTimeoutMs());
         String oldServiceId = initServiceIdAndReturnOldValue();
         initAccessClientIfNeeded(oldServiceId);
-        initAccessAdminDefaultPasswordCheck();
         updateAccessAdoptionConfig();
         updateAccessProperties();
         updateLdapConfiguration(AccessConfigHolder.getInstance().drainLdapSetting(), AccessConfigHolder.getInstance()
@@ -2070,34 +2064,15 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
         getAccessClient().token().revokeAllForUserAndScope(username, scope);
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>
+     * Reads the {@link AdminBootstrapService} published in the application context; without one (context not
+     * ready, or embedded access not wired) setup is reported as required.
+     */
     @Override
-    public boolean isAdminUsingOldDefaultPassword() {
-        long timeDifference = ConstantValues.accessAdminDefaultPasswordCheckPeriod.getLong();
-        long now = System.currentTimeMillis();
-        if (BooleanUtils.isNotFalse(hasAdminSecurityIssue)
-                && lastAdminSecurityIssueCheck < now - timeDifference) {
-            LoginRequest loginRequest = new LoginRequest()
-                    .username(ADMIN_DEFAULT_USERNAME)
-                    .password(DEFAULT_ADMIN_PASSWORD);
-            lastAdminSecurityIssueCheck = now;
-            try {
-                getAccessClient().cachedAuth().authenticate(loginRequest);
-                hasAdminSecurityIssue = true;
-            } catch (AccessClientException e) {
-                hasAdminSecurityIssue = false;
-            } catch (Exception e) {
-                log.error("Caught exception while authenticating against Access using admin credentials: {}",
-                        e.getMessage(), e);
-                return true;
-            }
-        }
-        return hasAdminSecurityIssue;
-    }
-
-    @Override
-    public void invalidateAdminUsingOldDefaultPasswordCache() {
-        lastAdminSecurityIssueCheck = 0;
-        log.debug("Admin using old default password cache was invalidated");
+    public boolean isInitialSetupRequired() {
+        return !AdminBootstrapService.lookup(ContextHelper.get()).map(AdminBootstrapService::isClaimed).orElse(false);
     }
 
     @Override
@@ -2270,15 +2245,6 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
 
     void runAfterContextCreated(Runnable action) {
         contextStateDependantActionRunner.runAfterContextCreated(action);
-    }
-
-    private void initAccessAdminDefaultPasswordCheck() {
-        if (isAdminUsingOldDefaultPassword()) {
-            log.warn(
-                    "Your Artifactory server is configured with the default admin credentials." +
-                            " It is highly recommended to change the default admin password." +
-                            " You can change the password from the User Management page.");
-        }
     }
 
     private String getAccessServerName() {

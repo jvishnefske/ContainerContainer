@@ -45,7 +45,9 @@ import java.util.function.Supplier;
  * </ul>
  * A granted authentication is a {@link PluginRealmAuthentication}. Just-in-time users are created through the
  * {@link RealmDirectory}; a creation that loses a race with a concurrent one re-reads the user and continues only if
- * it belongs to the realm.
+ * it belongs to the realm. After the policy granted a result, {@link ExternalAdminMapping} may make the principal an
+ * administrator for that authentication only, when the server is claimed and one of the realm's groups is listed
+ * in {@code artifactory.security.externalAdminGroups} (IA7); the policy itself never grants admin.
  *
  * <p>Additive realms ({@link #additive}) are asked after another provider authenticated a request and may only add
  * groups, under the same group rules, to authentications whose type is known to carry no token scope.
@@ -62,8 +64,11 @@ public final class PluginRealmAuthenticator {
     private final RealmDirectory directory;
     private final HookFailureReporter reporter;
     private final LongSupplier nowSeconds;
+    private final Supplier<ExternalAdminMapping> adminMapping;
 
     /**
+     * Creates an authenticator without external administrator groups ({@link ExternalAdminMapping#DISABLED}).
+     *
      * @param realms     supplies the realms of the current plugin generation, in load order
      * @param directory  the user and group store
      * @param reporter   receives realm closures that failed or returned something invalid
@@ -71,10 +76,24 @@ public final class PluginRealmAuthenticator {
      */
     public PluginRealmAuthenticator(Supplier<List<PluginRealm>> realms, RealmDirectory directory,
             HookFailureReporter reporter, LongSupplier nowSeconds) {
+        this(realms, directory, reporter, nowSeconds, () -> ExternalAdminMapping.DISABLED);
+    }
+
+    /**
+     * @param realms       supplies the realms of the current plugin generation, in load order
+     * @param directory    the user and group store
+     * @param reporter     receives realm closures that failed or returned something invalid
+     * @param nowSeconds   the clock, in epoch seconds
+     * @param adminMapping supplies the current external administrator mapping (IA7), read on each granted
+     *                     exclusive-realm authentication
+     */
+    public PluginRealmAuthenticator(Supplier<List<PluginRealm>> realms, RealmDirectory directory,
+            HookFailureReporter reporter, LongSupplier nowSeconds, Supplier<ExternalAdminMapping> adminMapping) {
         this.realms = Objects.requireNonNull(realms, "realms");
         this.directory = Objects.requireNonNull(directory, "directory");
         this.reporter = Objects.requireNonNull(reporter, "reporter");
         this.nowSeconds = Objects.requireNonNull(nowSeconds, "nowSeconds");
+        this.adminMapping = Objects.requireNonNull(adminMapping, "adminMapping");
     }
 
     /** @return whether any exclusive realm is loaded */
@@ -226,8 +245,25 @@ public final class PluginRealmAuthenticator {
             // Defence in depth: the policy already refuses admins and admin groups.
             throw rejected(realm, "the granted user would be an administrator");
         }
-        return new PluginRealmAuthentication(new SimpleUser(principal), realm.pluginName(), realm.name(),
+        UserInfo granted = mapExternalAdmin(realm, result, principal);
+        return new PluginRealmAuthentication(new SimpleUser(granted), realm.pluginName(), realm.name(),
                 result.expiresAt(), details, () -> stillLoaded(realm));
+    }
+
+    /**
+     * Applies {@link ExternalAdminMapping} after {@link RealmGrantPolicy} (IA7): when the server is claimed and one
+     * of the realm's raw groups is a configured external administrator group, the principal is an administrator
+     * for this authentication only. Nothing is stored on the user.
+     */
+    private UserInfo mapExternalAdmin(PluginRealm realm, RealmResult.Authenticated result, UserInfo principal) {
+        if (!adminMapping.get().grantsAdmin(result.groups())) {
+            return principal;
+        }
+        MutableUserInfo copy = InfoFactoryHolder.get().copyUser(principal);
+        copy.setAdmin(true);
+        log.info("Plugin realm '{}' authenticated '{}' as an administrator through {}", realm.name(),
+                principal.getUsername(), "artifactory.security.externalAdminGroups");
+        return copy;
     }
 
     /**

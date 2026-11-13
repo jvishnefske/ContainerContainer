@@ -37,7 +37,8 @@ public class ArtifactoryInitStatusModel extends BaseModel {
 
     private boolean hasOnlyDefaultRepos;
     private boolean hasLicenseAlready;
-    private boolean hasDefaultPassword;
+    /** The server is not claimed yet (IA1); replaces the stock {@code hasDefaultPassword}. */
+    private boolean initialSetupRequired;
     private boolean hasProxies;
     private boolean skipWizard;
     private boolean eulaRequired;

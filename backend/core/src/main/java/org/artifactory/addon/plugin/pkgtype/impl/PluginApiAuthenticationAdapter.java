@@ -17,7 +17,6 @@ import org.artifactory.addon.plugin.pkgtype.PluginPackageTypeRegistry;
 import org.artifactory.api.security.SecurityService;
 import org.artifactory.authentication.AuthenticationFilterUtils;
 import org.artifactory.security.UserInfo;
-import org.artifactory.util.SecurityUtils;
 import org.artifactory.webapp.servlet.RequestUtils;
 
 import java.util.Objects;
@@ -39,7 +38,7 @@ import java.util.function.Supplier;
  *     <li>at least one registered plugin package type has an HTTP API handler, so with no such plugin the endpoint
  *         behaves exactly as in stock OSS;</li>
  *     <li>the same conditions under which the Basic filter accepts any other request: a Basic header is present,
- *         no HTTP SSO user is set, the password passes the password policy, and the user is not anonymous unless
+ *         no HTTP SSO user is set, and the user is not anonymous unless
  *         anonymous access is enabled.</li>
  * </ul>
  * Everything else gets an empty context, which the package filter reports as not handled.
@@ -71,9 +70,7 @@ public class PluginApiAuthenticationAdapter implements PackageAuthenticationAdap
         String username = basicPresent ? RequestUtils.extractUsernameFromRequest(request) : null;
         boolean sso = StringUtils.isNotBlank(AuthenticationFilterUtils.getRemoteUserName(
                 security.getHttpSsoRemoteUserRequestVariable(), request));
-        boolean policy = basicPresent &&
-                SecurityUtils.validatePasswordPolicy(username, RequestUtils.extractPasswordFromRequest(request));
-        boolean accepted = acceptsBasic(true, true, basicPresent, sso, policy,
+        boolean accepted = acceptsBasic(true, true, basicPresent, sso,
                 security.isAnonAccessEnabled(), username != null && UserInfo.isAnonymous(username));
         return PackageAuthenticationRequestContext.builder().authenticationAllowed(accepted).build();
     }
@@ -90,13 +87,12 @@ public class PluginApiAuthenticationAdapter implements PackageAuthenticationAdap
      * @param apiTypeRegistered  some registered plugin package type has an API handler
      * @param basicPresent       a non-empty Basic {@code Authorization} header is present
      * @param sso                an HTTP SSO remote user is set on the request
-     * @param passwordPolicyOk   the password passes the password policy
      * @param anonAccessEnabled  anonymous access is enabled
      * @param anonymousUsername  the Basic username is the anonymous user
      */
     static boolean acceptsBasic(boolean dockerEndpoint, boolean apiTypeRegistered, boolean basicPresent, boolean sso,
-            boolean passwordPolicyOk, boolean anonAccessEnabled, boolean anonymousUsername) {
-        return dockerEndpoint && apiTypeRegistered && basicPresent && !sso && passwordPolicyOk &&
+            boolean anonAccessEnabled, boolean anonymousUsername) {
+        return dockerEndpoint && apiTypeRegistered && basicPresent && !sso &&
                 (anonAccessEnabled || !anonymousUsername);
     }
 

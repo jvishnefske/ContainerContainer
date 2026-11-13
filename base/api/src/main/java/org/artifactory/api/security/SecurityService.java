@@ -51,8 +51,6 @@ public interface SecurityService extends ImportableExportable {
 
     String DEFAULT_ADMIN_USER = "admin";
 
-    String DEFAULT_ADMIN_PASSWORD = "password";
-
     String USER_SYSTEM = "_system_";
 
     String USER_XRAY = "xray";

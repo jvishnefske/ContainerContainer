@@ -43,14 +43,18 @@ public interface BootstrapStatePort {
     EaOutcome<Done> save(BootstrapState newState, Optional<String> expectedPriorSerialised);
 
     /**
-     * Claims the server in one transaction: sets the password hash of {@code admin} (clearing its
-     * must-change-password flag, since the holder chose the password) and replaces the stored state with
-     * {@code newState} if it is still {@code expectedPriorSerialised}. Either both writes happen or neither does.
+     * Claims the server in one transaction: sets the password hash of {@code admin} and its must-change-password
+     * flag, and replaces the stored state with {@code newState} if it is still {@code expectedPriorSerialised}.
+     * Either both writes happen or neither does.
      *
      * @param newState                the claimed state
-     * @param expectedPriorSerialised the serialised unclaimed state the claim was checked against
+     * @param expectedPriorSerialised the serialised state the claim was checked against, or empty if none was
+     *                                stored (a first start claimed with an operator-supplied temporary password)
      * @param adminPasswordHash       the encoded password hash, as produced by {@link PasswordHasher#encode}
+     * @param mustChangePassword      {@code false} when the holder chose the password (setup-token claim),
+     *                                {@code true} for an operator-supplied temporary password (IA5)
      * @return {@code Done}, or {@code Refused} if the stored state changed or the transaction failed
      */
-    EaOutcome<Done> claim(Claimed newState, String expectedPriorSerialised, String adminPasswordHash);
+    EaOutcome<Done> claim(Claimed newState, Optional<String> expectedPriorSerialised, String adminPasswordHash,
+            boolean mustChangePassword);
 }
