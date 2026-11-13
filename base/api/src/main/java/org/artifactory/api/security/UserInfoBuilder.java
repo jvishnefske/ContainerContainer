@@ -77,6 +77,7 @@ public class UserInfoBuilder implements Builder<MutableUserInfo> {
     private boolean identity;
     private boolean disabledUiAccess;
     private boolean emailVerified;
+    private boolean mustChangePassword = false;
 
 
     public UserInfoBuilder(String username) {
@@ -126,6 +127,7 @@ public class UserInfoBuilder implements Builder<MutableUserInfo> {
         user.setIsIdentity(identity);
         user.setIsDisabledUiAccess(disabledUiAccess);
         user.setIsEmailVerified(emailVerified);
+        user.setMustChangePassword(mustChangePassword);
         return user;
     }
 
@@ -181,6 +183,17 @@ public class UserInfoBuilder implements Builder<MutableUserInfo> {
 
     public UserInfoBuilder credentialsExpired(boolean credentialsExpired) {
         this.credentialsExpired = credentialsExpired;
+        return this;
+    }
+
+    /**
+     * @param mustChangePassword whether the holder must choose a new password before using the account (default
+     *                           false)
+     * @return this builder
+     * @see org.artifactory.security.UserInfo#isMustChangePassword()
+     */
+    public UserInfoBuilder mustChangePassword(boolean mustChangePassword) {
+        this.mustChangePassword = mustChangePassword;
         return this;
     }
 

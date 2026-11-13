@@ -245,6 +245,17 @@ public interface UserGroupStoreService extends ReloadableBean {
     void changePassword(@Nonnull UserInfo user, SaltedPassword saltedPassword, String rawPassword);
 
     /**
+     * Sets or clears the must-change-password flag of a user ({@link UserInfo#isMustChangePassword()}) without
+     * touching any other field. This is the only store operation that clears the flag: full user updates can set it
+     * but never remove it, and the flag's key cannot be written or deleted through the user-property methods.
+     *
+     * @param username           the user to update
+     * @param mustChangePassword true to set the flag, false to clear it
+     */
+    @Lock
+    void setMustChangePassword(@Nonnull String username, boolean mustChangePassword);
+
+    /**
      * Makes user password expired
      */
     @Lock

@@ -593,6 +593,28 @@ public class AccessServiceImplTest extends ArtifactoryHomeBoundTest {
 
     }
 
+    // IA5: no token for a user who must change the password, whoever asks for it
+    @Test
+    public void createTokenRefusedForUserWhoMustChangePassword() {
+        when(securityService.isAdmin()).thenReturn(true);
+        UserImpl flagged = new UserImpl("test");
+        flagged.setMustChangePassword(true);
+        when(userGroupService.findUser("test", false)).thenReturn(flagged);
+        TokenSpec<UserTokenSpec> tokenSpec = UserTokenSpec.create("test").scope(List.of("api:*"));
+        AuthorizationException refused = Assertions.assertThrows(AuthorizationException.class,
+                () -> accessServiceSpy.createToken(tokenSpec, true, true));
+        assertTrue(refused.getMessage().contains("password change required"));
+        Mockito.verify(accessClient.token(), Mockito.never()).create(any());
+    }
+
+    @Test
+    public void createTokenAllowedForUnflaggedUser() {
+        when(securityService.isAdmin()).thenReturn(true);
+        when(userGroupService.findUser("test", false)).thenReturn(new UserImpl("test"));
+        TokenSpec<UserTokenSpec> tokenSpec = UserTokenSpec.create("test").scope(List.of("api:*"));
+        assertNotNull(accessServiceSpy.createToken(tokenSpec, true, true));
+    }
+
     @Test
     public void createTokenForNonAdminWithMpuScope() {
         when(securityService.isAdmin()).thenReturn(false);

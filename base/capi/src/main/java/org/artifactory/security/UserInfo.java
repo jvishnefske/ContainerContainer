@@ -172,4 +172,15 @@ public interface UserInfo extends Info {
     boolean isDisabledUiAccess();
 
     boolean isEmailVerified();
+
+    /**
+     * Indicates whether the holder must choose a new password before doing anything else. The flag is set on an
+     * account whose current password was not chosen by its holder, for example one set or reset by another
+     * administrator. While it is set the account may only call the change-password and logout endpoints, and no
+     * token or API key can be created for it.
+     *
+     * @return <code>true</code> if the account must change its password before it can be used, <code>false</code>
+     * otherwise (the default)
+     */
+    boolean isMustChangePassword();
 }

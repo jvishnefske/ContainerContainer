@@ -245,6 +245,20 @@ public interface UserGroupService {
     boolean updatePropsToken(String user, String propKey, String propValue);
 
     /**
+     * Sets or clears the must-change-password flag of a user ({@link UserInfo#isMustChangePassword()}) and evicts the
+     * user's cached authentications. While the flag is set the account may only change its password or log out,
+     * and no access token or API key is issued for it; {@code SecurityService.changePassword} clears it once the
+     * holder sets a password that differs from the current one. This is the only way to clear the flag explicitly;
+     * use it to set the flag on a temporary password chosen by an operator rather than by the holder.
+     * Callers are trusted code; this method performs no permission check.
+     *
+     * @param userName           the user to update
+     * @param mustChangePassword true to set the flag, false to clear it
+     */
+    @Lock
+    void setMustChangePassword(@Nonnull String userName, boolean mustChangePassword);
+
+    /**
      * Locks user upon incorrect login attempt
      */
     void lockUser(@Nonnull String userName);

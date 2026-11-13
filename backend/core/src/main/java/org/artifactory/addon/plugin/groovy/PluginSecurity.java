@@ -42,7 +42,9 @@ import java.util.function.Supplier;
  *         {@code applied-permissions/user}, not refreshable, minted through Access with the user's own rights. Its
  *         lifetime is the smallest of the requested one, {@link #MAX_TOKEN_SECONDS}, the optional
  *         {@code notAfterEpochSeconds} argument and, when a plugin realm authenticated the request with an expiry,
- *         the time left until that expiry. The result is a {@link PluginAccessToken} value, never an exception.</li>
+ *         the time left until that expiry. It is refused for a user whose password must be changed first
+ *         ({@link UserInfo#isMustChangePassword()}). The result is a {@link PluginAccessToken} value, never an
+ *         exception.</li>
  * </ul>
  * In realm code no user is authenticated yet, so {@code createAccessToken} refuses there; it is meant for
  * executions such as a token exchange that a realm-authenticated caller runs.
@@ -207,6 +209,9 @@ public final class PluginSecurity {
         String username = securityService.currentUsername();
         if (username == null || securityService.isAnonymous() || UserInfo.isAnonymous(username)) {
             return PluginAccessToken.refused("the caller is not authenticated");
+        }
+        if (users.apply(username).filter(UserInfo::isMustChangePassword).isPresent()) {
+            return PluginAccessToken.refused("password change required");
         }
         long now = nowSeconds.getAsLong();
         OptionalLong realmExpiry = authentication.get() instanceof PluginRealmAuthentication realm

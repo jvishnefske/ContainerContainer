@@ -116,6 +116,12 @@ public interface MutableUserInfo extends UserInfo {
 
     void setPasswordDisabled(boolean invalidPassword);
 
+    /**
+     * @param mustChangePassword whether the holder must choose a new password before using the account
+     * @see UserInfo#isMustChangePassword()
+     */
+    void setMustChangePassword(boolean mustChangePassword);
+
     void setMfaStatus(UserMFAStatus mfaStatus);
 
     void setStatus(ArtifactoryUserStatus status);

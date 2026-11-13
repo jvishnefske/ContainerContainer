@@ -136,8 +136,11 @@ public class AccessAuthProviderUtils {
                 .appliedPermissionsGroups(userPrincipal.tokenScopes() != null &&
                         !TokenScopeUtils.scopeToGroups(userPrincipal.tokenScopes().stream().toList()).isEmpty())
                 .transientUser(user.isTransientUser())
-                .identity(identityToken);
-        user.getCustomData().forEach((k, v) -> builder.addProp(new UserProperty(k,v)));
+                .identity(identityToken)
+                .mustChangePassword(UserMapper.isMustChangePassword(user));
+        user.getCustomData().entrySet().stream()
+                .filter(entry -> !UserMapper.MUST_CHANGE_PASSWORD_KEY.equals(entry.getKey()))
+                .forEach(entry -> builder.addProp(new UserProperty(entry.getKey(), entry.getValue())));
         return new SimpleUser(builder.build());
     }
 

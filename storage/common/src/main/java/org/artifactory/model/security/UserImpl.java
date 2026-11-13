@@ -103,6 +103,13 @@ public class UserImpl implements MutableUserInfo {
     @XmlTransient
     private boolean passwordDisabled;
 
+    /**
+     * Held by the user store (Access custom data), like {@link #passwordDisabled}, so it is not part of the XML
+     * security export.
+     */
+    @XmlTransient
+    private boolean mustChangePassword;
+
     private UserMFAStatus mfaStatus = UserMFAStatus.NONE;
 
     @XmlTransient
@@ -168,6 +175,7 @@ public class UserImpl implements MutableUserInfo {
         setCredentialsExpired(user.isCredentialsExpired());
         setCredentialsNonExpired(user.isCredentialsNonExpired());
         setPasswordDisabled(user.isPasswordDisabled());
+        setMustChangePassword(user.isMustChangePassword());
         setIsDisabledUiAccess(user.isDisabledUiAccess());
         setIsEmailVerified(user.isEmailVerified());
     }
@@ -651,6 +659,7 @@ public class UserImpl implements MutableUserInfo {
                 && hasSamePassword(o)
                 && isAccountNonLocked() == o.isAccountNonLocked()
                 && isCredentialsExpired() == o.isCredentialsExpired()
+                && isMustChangePassword() == o.isMustChangePassword()
                 && equalGroupsSet(getGroups(), o.getGroups());
     }
 
@@ -693,6 +702,16 @@ public class UserImpl implements MutableUserInfo {
     @Override
     public boolean isPasswordDisabled() {
         return passwordDisabled;
+    }
+
+    @Override
+    public boolean isMustChangePassword() {
+        return mustChangePassword;
+    }
+
+    @Override
+    public void setMustChangePassword(boolean mustChangePassword) {
+        this.mustChangePassword = mustChangePassword;
     }
 
     @Override

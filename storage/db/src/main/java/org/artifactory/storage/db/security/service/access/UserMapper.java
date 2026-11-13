@@ -74,6 +74,23 @@ public class UserMapper {
     private static final Logger log = LoggerFactory.getLogger(UserMapper.class);
     public static final int MAX_ALLOWED_USERNAME_LENGTH = 64;
 
+    /**
+     * Access user custom-data key that carries {@link UserInfo#isMustChangePassword()}. The value is
+     * <code>"true"</code> when the flag is set; the key is absent (or removed) otherwise. It is stored as
+     * non-sensitive custom data and is never surfaced as a user property.
+     */
+    public static final String MUST_CHANGE_PASSWORD_KEY = "must_change_password";
+
+    /**
+     * Reads the must-change-password flag from an Access user's custom data.
+     *
+     * @param user User model from Access server
+     * @return true only if the custom data holds {@link #MUST_CHANGE_PASSWORD_KEY} with the value "true"
+     */
+    public static boolean isMustChangePassword(@Nonnull UserBase user) {
+        return user.getCustomData() != null && getBooleanCustomData(user, MUST_CHANGE_PASSWORD_KEY);
+    }
+
     public static boolean isFieldSensitive(String propKey) {
         return Arrays.stream(UsersUtil.BuiltInUserProperty.values())
                 .filter(property -> property.name().equals(propKey))
@@ -113,10 +130,12 @@ public class UserMapper {
                 .realm(fromAccessRealm(user.getRealm()))
                 .transientUser(user.isTransientUser())
                 .disabledUiAccess(getBooleanCustomData(user, "blockUiView"))
-                .emailVerified(getBooleanCustomData(user, "email_verified"));
+                .emailVerified(getBooleanCustomData(user, "email_verified"))
+                .mustChangePassword(isMustChangePassword(user));
 
         user.getCustomData().entrySet().stream()
                 .filter(entry -> !UsersUtil.BuiltInUserProperty.contains(entry.getKey()))
+                .filter(entry -> !MUST_CHANGE_PASSWORD_KEY.equals(entry.getKey()))
                 .filter(entry -> !isSearchableHelperProperty(user, entry.getKey()))
                 .map(entry -> new UserProperty(entry.getKey(), entry.getValue()))
                 .forEach(builder::addProp);
@@ -153,9 +172,12 @@ public class UserMapper {
                 .realm(fromAccessRealm(user.getRealm()))
                 .transientUser(user.isTransientUser())
                 .disabledUiAccess(getBooleanCustomData(user, "blockUiView"))
-                .emailVerified(getBooleanCustomData(user, "email_verified"));
+                .emailVerified(getBooleanCustomData(user, "email_verified"))
+                .mustChangePassword(isMustChangePassword(user));
 
-        user.getCustomData().forEach((k, v) -> builder.addProp(new UserProperty(k,v)));
+        user.getCustomData().entrySet().stream()
+                .filter(entry -> !MUST_CHANGE_PASSWORD_KEY.equals(entry.getKey()))
+                .forEach(entry -> builder.addProp(new UserProperty(entry.getKey(), entry.getValue())));
         return new SimpleUser(builder.build());
     }
 
@@ -301,9 +323,11 @@ public class UserMapper {
         addCustomData(builder, UsersUtil.BuiltInUserProperty.updatable_profile, decryptedUser.isUpdatableProfile());
         addCustomData(builder, UsersUtil.BuiltInUserProperty.disabled_password, decryptedUser.isPasswordDisabled());
         addCustomData(builder, UsersUtil.BuiltInUserProperty.policy_viewer, decryptedUser.isPolicyViewer());
+        addMustChangePasswordCustomData(builder, decryptedUser);
 
         if (includeCustomProperties) {
-            decryptedUser.getUserProperties()
+            decryptedUser.getUserProperties().stream()
+                    .filter(p -> !MUST_CHANGE_PASSWORD_KEY.equals(p.getPropKey()))
                     .forEach(p -> builder.addCustomData(p.getPropKey(),
                             StringUtils.isBlank(p.getPropValue()) ? null : p.getPropValue(), true));
             //TODO [RK] they should have a special prefix so that they could be differentiated when we get user from
@@ -387,6 +411,17 @@ public class UserMapper {
             builder.addCustomData(property.name(), value, property.sensitive);
         } else if (isUpdate(builder)) {
             builder.addCustomData(property.name(), null, false);
+        }
+    }
+
+    /**
+     * Writes the must-change-password flag only when it is set. A full user update or create never removes it:
+     * clearing is an explicit store operation ({@code UserGroupStoreService.setMustChangePassword}), so an update
+     * built from a stale or freshly built user object cannot lift the flag by accident.
+     */
+    private static void addMustChangePasswordCustomData(CustomDataBuilder builder, UserInfo user) {
+        if (user.isMustChangePassword()) {
+            builder.addCustomData(MUST_CHANGE_PASSWORD_KEY, "true", false);
         }
     }
 

@@ -251,6 +251,8 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
     private static final String DEFAULT_ADMIN_PASSWORD = "password";
     private static final String USER_TOKEN_CREATION_ERROR_MESSAGE =
             "The user: '%s' can only create user token(s) for themselves (requested: %s)";
+    private static final String PASSWORD_CHANGE_REQUIRED_TOKEN_ERROR_MESSAGE =
+            "Cannot create a token for the user: '%s': password change required";
     private static final String ARTIFACTORY_SERVICE_ID = "artifactory.service_id";
     private static final int AUTH_FAILURE_MAX_RETRY = 15;
     private static final int AUTH_FAILURE_RETRY_INTERVAL = 1000;
@@ -873,6 +875,7 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
                 TokenRequest tokenRequest = new TokenRequest(scope, tokenSpec.isRefreshable(), subject, getIssuer(),
                         tokenSpec.getExpiresIn(), tokenSpec.getExtension(), audience, tokenSpec.isReference(),
                         tokenSpec.getDescription(), null);
+                assertNoPasswordChangePending(subject);
                 assertLoggedInCanCreateToken(tokenRequest, skipUserCanCreateLongLivedTokenAssertion);
                 tokenRequest = replacePathTokenScopeWithChecksum(tokenRequest);
                 TokenResponse tokenResponse = getAccessClient().token().create(tokenRequest);
@@ -911,6 +914,9 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
 
     @Override
     public ProxyTokenResponse createTokenAsProxy(@Nonnull TokenSpec<?> tokenSpec, String username, String grantType) {
+        if (username != null) {
+            assertUserHasNoPasswordChangePending(username);
+        }
         String audienceAsString = StringUtils.join(getEffectiveAudience(tokenSpec), " ");
         List<String> accessScopes = replaceScopesWithAccessScopes(tokenSpec.getScope());
         String scopeAsString = StringUtils.join(accessScopes, SCOPE_DELIMITER);
@@ -980,6 +986,25 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
                 tokenRequest.getExpiresIn(),
                 tokenRequest.getExtension(), tokenRequest.getAudience(), tokenRequest.isIncludeReferenceToken(),
                 tokenRequest.getDescription(), null);
+    }
+
+    /**
+     * Refuses token creation for a user subject whose account must change its password (IA5).
+     *
+     * @param subject the token subject; subjects that are not user subjects (services, groups) are not checked
+     * @throws AuthorizationException if the subject is a user with {@link UserInfo#isMustChangePassword()} set
+     */
+    private void assertNoPasswordChangePending(String subject) {
+        if (subject != null && UserTokenSpec.isUserTokenSubject(subject)) {
+            assertUserHasNoPasswordChangePending(UserTokenSpec.extractUsername(subject));
+        }
+    }
+
+    private void assertUserHasNoPasswordChangePending(String username) {
+        UserInfo user = userGroupService.findUser(username, false);
+        if (user != null && user.isMustChangePassword()) {
+            throw new AuthorizationException(String.format(PASSWORD_CHANGE_REQUIRED_TOKEN_ERROR_MESSAGE, username));
+        }
     }
 
     private void assertLoggedInCanCreateToken(TokenRequest tokenRequest,
@@ -1305,6 +1330,7 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
                     "Cannot refresh token: access token signature is invalid (" + signatureCheck.getReason() + ")");
         }
         assertTokenCreatedByThisService(accessToken);
+        assertNoPasswordChangePending(accessToken.getSubject());
         List<String> effectiveScope =
                 isNotEmpty(tokenSpec.getScope()) ? tokenSpec.getScope() : accessToken.getScope();
         assertValidScopeForNonAdmin(accessToken, effectiveScope);

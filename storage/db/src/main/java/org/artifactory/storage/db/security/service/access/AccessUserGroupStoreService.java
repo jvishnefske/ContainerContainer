@@ -225,6 +225,10 @@ public class AccessUserGroupStoreService implements UserGroupStoreService {
 
     @Override
     public boolean addUserProperty(String username, String key, String val) {
+        if (isReservedPropertyKey(key)) {
+            log.warn("Refusing to set reserved user property '{}' for user '{}'", key, username);
+            return false;
+        }
         if (!userExists(username)) {
             log.debug("The user: '{}' doesn't exist. Cannot add property", username);
             return false;
@@ -238,6 +242,10 @@ public class AccessUserGroupStoreService implements UserGroupStoreService {
 
     @Override
     public boolean deleteUserProperty(String username, String propKey) {
+        if (isReservedPropertyKey(propKey)) {
+            log.warn("Refusing to delete reserved user property '{}' for user '{}'", propKey, username);
+            return false;
+        }
         if (!userExists(username)) {
             log.debug("The user: '{}' doesn't exist. Cannot delete property {}", username, propKey);
             return false;
@@ -267,6 +275,10 @@ public class AccessUserGroupStoreService implements UserGroupStoreService {
 
     @Override
     public void deletePropertyFromAllUsers(String propertyKey) {
+        if (isReservedPropertyKey(propertyKey)) {
+            log.warn("Refusing to delete reserved user property '{}' from all users", propertyKey);
+            return;
+        }
         getClient().cachedUsers().findUsersByCustomData(propertyKey, true).getUsers().stream()
                 .map(UserMapper::toArtifactoryUser)
                 .forEach(u -> deleteUserProperty(u, propertyKey));
@@ -462,6 +474,21 @@ public class AccessUserGroupStoreService implements UserGroupStoreService {
     public void changePassword(UserInfo user, SaltedPassword newSaltedPassword, String rawPassword) {
         patchUser(createUpdateUserRequest(user.getUsername(),
                 (request) -> request.password(rawPassword)));
+    }
+
+    @Override
+    public void setMustChangePassword(@Nonnull String username, boolean mustChangePassword) {
+        patchUser(createUpdateUserRequest(username,
+                (request) -> request.addCustomData(UserMapper.MUST_CHANGE_PASSWORD_KEY,
+                        mustChangePassword ? "true" : null, false)));
+    }
+
+    /**
+     * The must-change-password flag lives in the same Access custom data as user properties; it is managed only by
+     * {@link #setMustChangePassword(String, boolean)} so a property write cannot lift it.
+     */
+    private static boolean isReservedPropertyKey(String key) {
+        return UserMapper.MUST_CHANGE_PASSWORD_KEY.equals(key);
     }
 
     @Override

@@ -129,6 +129,14 @@ public abstract class HttpUtils {
             Pattern.compile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$");
     private static final Pattern REGEX_SPECIAL_CHARS = Pattern.compile("[.*+?\\[\\]()^$|\\\\]");
     private static final UrlValidator OVERRIDE_BASE_URL_VALIDATOR = new UrlValidator("http", "https");
+    /** Context-relative paths of the change-password endpoints (REST API and UI). */
+    private static final Set<String> CHANGE_PASSWORD_PATHS = Set.of(
+            "/api/security/users/authorization/changePassword",
+            "/ui/auth/changePassword");
+    /** Context-relative paths of the logout endpoints (REST API and UI). */
+    private static final Set<String> LOGOUT_PATHS = Set.of(
+            "/api/security/logout",
+            "/ui/auth/logout");
 
     private static String userAgent;
 
@@ -1018,15 +1026,44 @@ public abstract class HttpUtils {
     }
 
     /**
-     * Checks whether request targeted for changePassword api
-     * or if admin triggered "unExpirePasswordForAllUsers" action
+     * Checks whether the request calls a change-password endpoint: a {@code POST} to
+     * {@code /api/security/users/authorization/changePassword} (REST API) or {@code /ui/auth/changePassword} (UI),
+     * relative to the context path. The match is exact (case-sensitive, no extra segments, no path parameters), so
+     * it can serve as an allow-list.
      *
-     * @return true if request targeted for "changePassword"
+     * @return true if the request targets a change-password endpoint
      */
     public static boolean isChangePasswordRequest(ServletRequest servletRequest) {
-        String uri = ((HttpServletRequest) servletRequest).getRequestURI();
-        String invokedMethod = PathUtils.getLastPathElement(uri);
-        return "changePassword".equals(invokedMethod) || "unExpirePasswordForAllUsers".equals(invokedMethod);
+        return isPostToOneOf(servletRequest, CHANGE_PASSWORD_PATHS);
+    }
+
+    /**
+     * Checks whether the request calls a logout endpoint: a {@code POST} to {@code /api/security/logout} (REST API)
+     * or {@code /ui/auth/logout} (UI), relative to the context path, matched exactly like
+     * {@link #isChangePasswordRequest(ServletRequest)}.
+     *
+     * @return true if the request targets a logout endpoint
+     */
+    public static boolean isLogoutRequest(ServletRequest servletRequest) {
+        return isPostToOneOf(servletRequest, LOGOUT_PATHS);
+    }
+
+    private static boolean isPostToOneOf(ServletRequest servletRequest, Set<String> paths) {
+        if (!(servletRequest instanceof HttpServletRequest request) || !"POST".equals(request.getMethod())) {
+            return false;
+        }
+        String uri = request.getRequestURI();
+        if (uri == null) {
+            return false;
+        }
+        String contextPath = request.getContextPath();
+        if (StringUtils.isNotEmpty(contextPath)) {
+            if (!uri.startsWith(contextPath)) {
+                return false;
+            }
+            uri = uri.substring(contextPath.length());
+        }
+        return paths.contains(uri);
     }
 
     public static boolean isValidUrl(String url) {

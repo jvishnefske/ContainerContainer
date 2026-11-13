@@ -36,6 +36,7 @@ import org.artifactory.api.context.ArtifactoryContext;
 import org.artifactory.api.context.ContextHelper;
 import org.artifactory.api.security.SecurityListener;
 import org.artifactory.api.security.SecurityService;
+import org.artifactory.api.security.UserGroupService;
 import org.artifactory.authentication.ArtifactoryAuthenticationContextFilter;
 import org.artifactory.authentication.ArtifactoryAuthenticationFilter;
 import org.artifactory.authentication.AuthenticationFilterUtils;
@@ -635,9 +636,21 @@ public class AccessFilter extends DelayedFilterBase implements SecurityListener 
         return cached;
     }
 
-    private void useAuthentication(HttpServletRequest request, HttpServletResponse response, FilterChain chain,
+    /**
+     * Runs the rest of the chain as {@code authentication}. A user who must change the password first
+     * ({@link UserInfo#isMustChangePassword()}) is answered 403 "password change required" instead, unless the
+     * request is a change-password or logout call ({@link MustChangePasswordGate}).
+     */
+    @VisibleForTesting
+    void useAuthentication(HttpServletRequest request, HttpServletResponse response, FilterChain chain,
             Authentication authentication) throws IOException, ServletException {
         try {
+            if (MustChangePasswordGate.blocks(authentication, request, this::findStoredUser)) {
+                log.debug("Refusing request to '{}' for '{}': password change required", request.getRequestURI(),
+                        authentication.getName());
+                MustChangePasswordGate.refuse(response);
+                return;
+            }
             SecurityContextHolder.getContext().setAuthentication(authentication);
             chain.doFilter(request, response);
             addToUserChange(authentication);
@@ -646,6 +659,10 @@ public class AccessFilter extends DelayedFilterBase implements SecurityListener 
             request.setAttribute(AUTHENTICATED_USERNAME_ATTRIBUTE,
                     authentication != null ? authentication.getName() : "non_authenticated_user");
         }
+    }
+
+    private UserInfo findStoredUser(String username) {
+        return context.beanForType(UserGroupService.class).findUser(username, false);
     }
 
     @Override

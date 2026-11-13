@@ -904,8 +904,15 @@ public class SecurityServiceImpl implements InternalSecurityService {
         return userGroupStoreService.deleteUserProperty(userName, propsKey);
     }
 
+    /**
+     * Adds a props token. An API key ({@link ApiKeyManager#API_KEY}) is refused (returns false) for a user whose
+     * password must be changed first ({@link UserInfo#isMustChangePassword()}).
+     */
     @Override
     public boolean createPropsToken(String userName, String propsKey, String propsValue) {
+        if (isApiKeyRefused(userName, propsKey)) {
+            return false;
+        }
         boolean isPropsAddSucceeded = false;
         try {
             isPropsAddSucceeded = userGroupStoreService.addUserProperty(userName, propsKey, propsValue);
@@ -923,14 +930,50 @@ public class SecurityServiceImpl implements InternalSecurityService {
         }
     }
 
+    /**
+     * Replaces a props token. Like {@link #createPropsToken}, an API key is refused (returns false, the existing value
+     * is kept) for a user whose password must be changed first.
+     */
     @Override
     public boolean updatePropsToken(String userName, String propsKey, String propsValue) {
+        if (isApiKeyRefused(userName, propsKey)) {
+            return false;
+        }
         boolean isUpdateSucceeded = userGroupStoreService.deleteUserProperty(userName, propsKey);
         if (isUpdateSucceeded) {
             isUpdateSucceeded = userGroupStoreService.addUserProperty(userName, propsKey, propsValue);
             invalidateAuthCacheEntries(userName);
         }
         return isUpdateSucceeded;
+    }
+
+    private boolean isApiKeyRefused(String userName, String propsKey) {
+        if (!ApiKeyManager.API_KEY.equals(propsKey)
+                || MustChangePasswordRules.mayIssueCredential(userGroupStoreService.findUser(userName))) {
+            return false;
+        }
+        log.warn("Refusing to create an API key for user '{}': password change required", userName);
+        return true;
+    }
+
+    @Override
+    public void setMustChangePassword(@Nonnull String userName, boolean mustChangePassword) {
+        userGroupStoreService.setMustChangePassword(userName, mustChangePassword);
+        invalidateAuthCacheEntries(userName);
+        log.info("Must-change-password flag for user '{}' {}", userName, mustChangePassword ? "set" : "cleared");
+    }
+
+    /**
+     * Marks {@code user} as having to change its password when the current, authenticated administrator writes a
+     * new password for another user ({@link MustChangePasswordRules#setsFlag}).
+     *
+     * @param storedPassword the password held by the stored user, null for a new user
+     */
+    private void flagIfPasswordSetByAnotherAdministrator(MutableUserInfo user, String storedPassword) {
+        if (MustChangePasswordRules.setsFlag(currentUsername(), isAdmin(), user.getUsername(), user.getPassword(),
+                storedPassword, user.isPasswordDisabled())) {
+            user.setMustChangePassword(true);
+        }
     }
 
     /**
@@ -1284,6 +1327,7 @@ public class SecurityServiceImpl implements InternalSecurityService {
 
     private boolean createUser(MutableUserInfo user, boolean addUserProperties) {
         user.setUsername(user.getUsername().toLowerCase());
+        flagIfPasswordSetByAnotherAdministrator(user, null);
         try {
             boolean userCreated = userGroupStoreService.createUserWithProperties(user, addUserProperties);
             if (userCreated) {
@@ -1312,7 +1356,9 @@ public class SecurityServiceImpl implements InternalSecurityService {
     }
 
     /**
-     * Changes user password
+     * Changes user password. The holder must supply the current password, and the new one must differ from it. On
+     * success the must-change-password flag ({@link UserInfo#isMustChangePassword()}) is cleared, so this is how a
+     * holder of a temporary password regains full use of the account.
      *
      * @param userName     user name
      * @param oldPassword  old password
@@ -1331,6 +1377,10 @@ public class SecurityServiceImpl implements InternalSecurityService {
 
             if (isOldPasswordValid(findUser(userName), oldPassword, newPassword1, newPassword2)) {
                 changePasswordWithoutValidation(user, newPassword1);
+                if (user.isMustChangePassword()) {
+                    // isOldPasswordValid refused a new password equal to the temporary one
+                    setMustChangePassword(user.getUsername(), false);
+                }
             }
 
             if (ADMIN_DEFAULT_USERNAME.equals(userName)) {
@@ -1349,7 +1399,8 @@ public class SecurityServiceImpl implements InternalSecurityService {
     }
 
     /**
-     * Changes user password without validating old password
+     * Changes user password without validating old password. When the current user is an administrator setting
+     * another user's password, the must-change-password flag is set on that user. It is never cleared here.
      *
      * @param user        user to change password to
      * @param newPassword new password
@@ -1363,6 +1414,10 @@ public class SecurityServiceImpl implements InternalSecurityService {
             }
 
             userGroupStoreService.changePassword(user, generateSaltedPassword(newPassword), newPassword);
+            if (MustChangePasswordRules.setsFlag(currentUsername(), isAdmin(), user.getUsername(), newPassword,
+                    null, false)) {
+                userGroupStoreService.setMustChangePassword(user.getUsername(), true);
+            }
             invalidateAuthCacheEntries(user.getUsername());
             log.info("Password for user: '{}' has been successfully changed", user.getUsername());
         } catch (Exception e) {
@@ -1401,10 +1456,19 @@ public class SecurityServiceImpl implements InternalSecurityService {
         return true;
     }
 
+    /**
+     * Updates a user. When the current user is an administrator writing a new password for another user, the
+     * must-change-password flag is set on that user. A full update never clears the flag.
+     */
     @Override
     public void updateUser(MutableUserInfo user, boolean activateListeners) {
         String userName = user.getUsername().toLowerCase();
         user.setUsername(userName);
+        if (MustChangePasswordRules.isWrittenByAnotherAdministrator(currentUsername(), isAdmin(), userName)
+                && MustChangePasswordRules.carriesNewPassword(user.getPassword(), null, user.isPasswordDisabled())) {
+            UserInfo stored = userGroupStoreService.findUser(userName);
+            flagIfPasswordSetByAnotherAdministrator(user, stored != null ? stored.getPassword() : null);
+        }
         userGroupStoreService.updateUser(user);
         if (activateListeners) {
             invalidateAuthCacheEntries(user.getUsername());
