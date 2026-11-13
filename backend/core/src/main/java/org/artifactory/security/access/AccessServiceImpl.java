@@ -37,6 +37,10 @@ import org.apache.http.HttpStatus;
 import org.artifactory.addon.AddonsManager;
 import org.artifactory.api.context.ArtifactoryContext;
 import org.artifactory.api.context.ContextHelper;
+import org.artifactory.security.access.embedded.EmbeddedAccess;
+import org.artifactory.security.access.embedded.EmbeddedAccessFactory;
+import org.artifactory.security.access.embedded.core.EaOutcome;
+import org.artifactory.storage.db.util.ArtifactoryJdbcHelper;
 import org.artifactory.api.repo.RepositoryService;
 import org.artifactory.api.repo.exception.ItemNotFoundRuntimeException;
 import org.artifactory.api.security.AuthorizationException;
@@ -146,8 +150,11 @@ import org.jfrog.security.util.ULID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.beans.factory.support.DefaultSingletonBeanRegistry;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.acls.model.NotFoundException;
 import org.springframework.security.core.Authentication;
@@ -300,6 +307,12 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
     private final Set<AccessClientUpdateListener> accessClientUpdateListeners = new HashSet<>();
 
     private LicenseClient licenseClient;
+    /**
+     * The running embedded Access instance in embedded mode ({@link ConstantValues#accessEmbeddedEnabled}), built
+     * once per context by {@link #bootstrapEmbeddedAccessClient()} and closed by {@link #destroy()}; {@code null} in
+     * stock mode.
+     */
+    private EmbeddedAccess embeddedAccess;
     private GrpcPlatformConfigClient platformConfigClient;
     private int authFailureMaxRetry;
 
@@ -506,7 +519,22 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
         }
     }
 
+    /**
+     * Runs an Access call, retrying while the stock client reports that its admin token is invalid (401 or gRPC
+     * UNAUTHENTICATED) until it has rejoined. In embedded mode there is no admin token to renew: a 401 means the
+     * presented credentials are wrong, so the call runs once and its failure is returned at once (retrying would
+     * only delay every failed login by the retry interval).
+     */
     private <T> T callWithRetry(Callable<T> call) throws InterruptedException {
+        if (isEmbeddedAccess()) {
+            try {
+                return call.call();
+            } catch (RuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new AccessClientException(e);
+            }
+        }
         int retryAttempt = 0;
         RuntimeException lastException;
         do {
@@ -572,9 +600,22 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
         }
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>
+     * In embedded mode (the default) the client is the in-process embedded Access, see
+     * {@link #bootstrapAccessClient()}; in stock mode a WARN states that the initial-admin bootstrap (IA1 to IA8)
+     * does not apply.
+     */
     @Override
     public void init() {
         artifactoryHome = ArtifactoryHome.get();
+        if (!isEmbeddedAccess()) {
+            log.warn("Embedded access is disabled ({}=false): Artifactory uses an external JFrog Access server. The "
+                            + "initial administrator bootstrap (IA1 to IA8: setup token, claim endpoint, closed "
+                            + "server until claimed) does not apply in this mode and the initial setup filter passes "
+                            + "every request.", ConstantValues.accessEmbeddedEnabled.getPropertyName());
+        }
         joinKeyBootstrapper = new JoinKeyBootstrapper(artifactoryHome.getSysConfig(),
                 artifactoryHome.getSysConfig().helper().getBootstrapKeyReadTimeoutMs());
         String oldServiceId = initServiceIdAndReturnOldValue();
@@ -635,7 +676,8 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
     }
 
     private void closeOldAccessClient(AccessClient oldAccessClient) {
-        if (oldAccessClient == null) {
+        if (oldAccessClient == null || oldAccessClient == accessClient) {
+            // Nothing to close, or the embedded client was kept across a re-initialization.
             return;
         }
         try {
@@ -908,6 +950,10 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
 
     @Override
     public ProxyTokenResponse createTokenAsProxy(@Nonnull TokenSpec<?> tokenSpec, String username, String grantType) {
+        if (isEmbeddedAccess()) {
+            // There is no Access server to proxy to: tokens are created by createToken in process.
+            throw new IllegalStateException("Token proxy generation to Access is not available with embedded access");
+        }
         if (username != null) {
             assertUserHasNoPasswordChangePending(username);
         }
@@ -1667,6 +1713,9 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
 
     @Override
     public void unregisterFromRouterIfNeeded() {
+        if (isEmbeddedAccess()) {
+            return;
+        }
         if (artifactoryHome.getSysConfig().getBoolean(SysConfigConstants.KEY_ROUTER_ENABLED, true)) {
             ArtifactoryRouterRegistrationData artifactoryRouterRegistrationData = new ArtifactoryRouterRegistrationData(
                     getArtifactoryServiceId(),
@@ -1700,7 +1749,27 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
         accessClientUpdateListeners.add(listener);
     }
 
+    /**
+     * Tells whether Artifactory runs on the embedded Access implementation
+     * ({@link ConstantValues#accessEmbeddedEnabled}, default {@code true}).
+     *
+     * @return {@code true} in embedded mode
+     */
+    boolean isEmbeddedAccess() {
+        ArtifactoryHome home = artifactoryHome != null ? artifactoryHome : ArtifactoryHome.get();
+        return ConstantValues.accessEmbeddedEnabled.getBoolean(home);
+    }
+
+    /**
+     * Installs the Access client. In embedded mode this is {@link #bootstrapEmbeddedAccessClient()}; otherwise the
+     * stock {@code AccessClientBootstrap} joins the external Access server with the join key, obtains the admin
+     * token and registers in the router.
+     */
     private void bootstrapAccessClient() {
+        if (isEmbeddedAccess()) {
+            bootstrapEmbeddedAccessClient();
+            return;
+        }
         rwAccessClientLock.writeLock().lock();
         try {
             AccessClient oldAccessClient = getAccessClient();
@@ -1718,6 +1787,78 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
         } finally {
             rwAccessClientLock.writeLock().unlock();
         }
+    }
+
+    /**
+     * Embedded mode: builds embedded Access on the first call (and again only if the service id changed), installs
+     * its client, stores its signing certificate as the Access root certificate ({@code keys/root.crt}) and
+     * publishes its initial-admin bootstrap service in the application context. No Access URL, join key, admin
+     * token, router or federation registration is involved.
+     *
+     * @throws IllegalStateException if embedded Access cannot start (for example an unsupported database type); the
+     *                               message carries the reason and startup stops
+     */
+    private void bootstrapEmbeddedAccessClient() {
+        rwAccessClientLock.writeLock().lock();
+        try {
+            if (embeddedAccess != null && embeddedAccess.client().artifactoryServiceId().getFormattedName()
+                    .equals(serviceId.getFormattedName())) {
+                if (accessClient != embeddedAccess.client()) {
+                    updateAccessClient(embeddedAccess.client());
+                }
+                return;
+            }
+            EmbeddedAccess previous = embeddedAccess;
+            EaOutcome<EmbeddedAccess> created = createEmbeddedAccess();
+            if (!(created instanceof EaOutcome.Ok<EmbeddedAccess> ok)) {
+                throw new IllegalStateException("Embedded access could not start: " + created);
+            }
+            embeddedAccess = ok.value();
+            configStore.storeRootCertificate(embeddedAccess.client().certificate());
+            publishBootstrapService(embeddedAccess);
+            updateAccessClient(embeddedAccess.client());
+            if (previous != null) {
+                previous.close();
+            }
+        } finally {
+            rwAccessClientLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Builds embedded Access from the Artifactory data source and home. Package-private so tests can substitute
+     * an instance over their own database.
+     *
+     * @return the running instance, or the refusal that must stop startup
+     */
+    EaOutcome<EmbeddedAccess> createEmbeddedAccess() {
+        ArtifactoryJdbcHelper jdbcHelper = context.beanForType(ArtifactoryJdbcHelper.class);
+        return EmbeddedAccessFactory.create(EmbeddedAccessFactory.Settings.forHome(artifactoryHome,
+                jdbcHelper.getDataSource(), artifactoryHome.getDBProperties().getDbType(), serviceId));
+    }
+
+    /** The bean name of the published {@link AdminBootstrapService}. */
+    static final String ADMIN_BOOTSTRAP_BEAN_NAME = "embeddedAccessAdminBootstrapService";
+
+    /**
+     * Registers the bootstrap service as a singleton of the application context, where
+     * {@link AdminBootstrapService#lookup} finds it for the initial-setup filter, the claim resource,
+     * {@link #isInitialSetupRequired()} and the plugin realm provider. This runs during the reloadable-bean
+     * initialization, before the context is marked ready; until then the setup filter fails closed. A previously
+     * published instance (service id change) is replaced.
+     */
+    private void publishBootstrapService(EmbeddedAccess embedded) {
+        if (!(context instanceof ConfigurableApplicationContext configurable)) {
+            log.error("Cannot publish the initial admin bootstrap service: the application context is not "
+                    + "configurable; the server stays closed");
+            return;
+        }
+        ConfigurableListableBeanFactory beanFactory = configurable.getBeanFactory();
+        if (beanFactory.containsSingleton(ADMIN_BOOTSTRAP_BEAN_NAME)
+                && beanFactory instanceof DefaultSingletonBeanRegistry registry) {
+            registry.destroySingleton(ADMIN_BOOTSTRAP_BEAN_NAME);
+        }
+        beanFactory.registerSingleton(ADMIN_BOOTSTRAP_BEAN_NAME, embedded.bootstrap());
     }
 
     private void traceThreadDump() {
@@ -1825,6 +1966,10 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
     @Override
     public void destroy() {
         IOUtils.closeQuietly(getAccessClient(), null);
+        if (embeddedAccess != null) {
+            embeddedAccess.close();
+            embeddedAccess = null;
+        }
     }
 
     @Override
@@ -2546,6 +2691,10 @@ public class AccessServiceImpl implements AccessService, ContextCreationListener
      * @param register TRUE for register, FALSE for un-register
      */
     private void registerInFederation(@Nullable String originalServiceId, boolean register) {
+        if (isEmbeddedAccess()) {
+            log.debug("Embedded access has no federation; skipping registration");
+            return;
+        }
         if (!register && originalServiceId == null) {
             log.debug("No original serviceId detected, no need to unregister in Access Federation");
             return;

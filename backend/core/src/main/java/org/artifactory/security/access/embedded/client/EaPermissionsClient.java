@@ -11,6 +11,7 @@ package org.artifactory.security.access.embedded.client;
 
 import org.artifactory.security.access.embedded.core.EaPermission;
 import org.jfrog.access.client.auth.AccessPrincipal;
+import org.jfrog.access.client.auth.AccessPrincipalImpl;
 import org.jfrog.access.client.auth.UserPrincipal;
 import org.jfrog.access.common.Action;
 import org.jfrog.access.common.ResourceType;
@@ -21,6 +22,7 @@ import org.jfrog.access.rest.permission.PermissionResponse;
 import org.jfrog.access.rest.permission.Permissions;
 import org.jfrog.access.rest.permission.PermissionsResponse;
 import org.jfrog.access.rest.permission.UpdatePermissionRequest;
+import org.jfrog.access.rest.user.User;
 
 import java.util.Collection;
 import java.util.HashSet;
@@ -182,8 +184,13 @@ final class EaPermissionsClient {
 
     /**
      * Lists the permissions of a resource type that grant an action to a user principal or one of its groups.
+     * <p>
+     * Two principal shapes carry a user: the {@link UserPrincipal} of a login (its groups are those of the login
+     * result) and the {@link AccessPrincipalImpl} Artifactory's {@code AuthorizationServiceImpl} builds (its groups
+     * are the given group names plus, like stock Access, the stored memberships of its user). Any other principal,
+     * a service for example, has no grants.
      *
-     * @param principal the principal; only user principals have grants
+     * @param principal the principal
      * @param type      the resource type
      * @param action    the action
      * @param useCache  ignored
@@ -191,15 +198,26 @@ final class EaPermissionsClient {
      */
     public Permissions findPrincipalPermissionsByResourceTypeAndAction(AccessPrincipal principal,
             ResourceType type, Action action, boolean useCache) {
-        if (!(principal instanceof UserPrincipal user)) {
+        String username;
+        Set<String> groups = new HashSet<>();
+        if (principal instanceof UserPrincipal user) {
+            username = user.user().getUsername();
+            user.user().getGroups().stream().map(GroupResponse::getName).forEach(groups::add);
+        } else if (principal instanceof AccessPrincipalImpl impl && !impl.isService()) {
+            username = impl.getUser().map(User::getUsername).orElse(null);
+            if (impl.getGroupNames() != null) {
+                groups.addAll(impl.getGroupNames());
+            }
+            if (username != null) {
+                EaErrors.orThrow(rt.store().getUser(username)).ifPresent(u -> groups.addAll(u.groups()));
+            }
+        } else {
             return wrap(List.of());
         }
-        String username = user.user().getUsername();
-        Set<String> groups = new HashSet<>();
-        user.user().getGroups().stream().map(GroupResponse::getName).forEach(groups::add);
+        Set<String> users = username == null ? Set.of() : Set.of(username);
         String code = action.name();
         return wrap(list(p -> p.resourceType().equals(type.getKey())
-                && (grants(p.userActions(), Set.of(username), code) || grants(p.groupActions(), groups, code))));
+                && (grants(p.userActions(), users, code) || grants(p.groupActions(), groups, code))));
     }
 
     /**

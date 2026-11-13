@@ -80,6 +80,7 @@ import static jakarta.ws.rs.core.MediaType.TEXT_PLAIN;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.artifactory.api.security.AuthorizationService.ROLE_ADMIN;
 import static org.artifactory.api.security.AuthorizationService.ROLE_USER;
+import static org.artifactory.common.ConstantValues.accessEmbeddedEnabled;
 import static org.artifactory.common.ConstantValues.accessTokenProxyGenerationToAccess;
 import static org.artifactory.common.ConstantValues.accessTokenRejectServiceSubject;
 import static org.artifactory.rest.resource.token.TokenResource.PATH_ROOT;
@@ -171,6 +172,13 @@ public class TokenResource {
 
     private Response createToken(String grantTypeName, String username, TokenSpec<?> tokenSpec) {
         assertAllowedSubject(username);
+        if (accessEmbeddedEnabled.getBoolean()) {
+            // Embedded access: there is no Access server to proxy to, so the proxy generation flag is treated as
+            // false and the token is created in process.
+            assertSupportedTokenSpecForCreate(tokenSpec, accessService.getArtifactoryServiceId().getFormattedName());
+            requireUsername(username);
+            return createToken(tokenSpec);
+        }
         try {
             Response tokenCreatedByAccess = createTokenByProxyToAccess(tokenSpec, username, grantTypeName);
             if (accessTokenProxyGenerationToAccess.getBoolean()) {

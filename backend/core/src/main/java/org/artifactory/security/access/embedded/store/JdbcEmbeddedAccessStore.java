@@ -38,6 +38,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 
 /**
  * {@link EmbeddedAccessStore} over plain JDBC on the Artifactory {@link DataSource}, for the schema that
@@ -215,23 +216,7 @@ public final class JdbcEmbeddedAccessStore implements EmbeddedAccessStore {
             if (!groupsOk.isOk()) {
                 return retype(groupsOk);
             }
-            try (PreparedStatement ps = tx.con.prepareStatement("UPDATE ea_users SET realm = ?, status = ?, "
-                    + "password_hash = ?, must_change_password = ?, password_last_modified = ?, email = ?, "
-                    + "admin = ?, last_login_time = ?, last_login_ip = ?, body = ?, modified = ? WHERE username = ?")) {
-                ps.setString(1, user.realm());
-                ps.setString(2, user.status().name());
-                ps.setString(3, user.passwordHash());
-                ps.setBoolean(4, user.mustChangePassword());
-                setInstant(ps, 5, user.passwordLastModified());
-                ps.setString(6, user.email());
-                ps.setBoolean(7, user.admin());
-                setInstant(ps, 8, user.lastLoginTime());
-                ps.setString(9, user.lastLoginIp());
-                ps.setString(10, EaJson.principalBody(user.customData()));
-                setInstant(ps, 11, user.modified());
-                ps.setString(12, user.username());
-                ps.executeUpdate();
-            }
+            updateUserRow(tx.con, user);
             Set<String> before = existing.get().groups();
             Set<String> changedGroups = symmetricDifference(before, user.groups());
             deleteMemberships(tx.con, user.username(), difference(before, user.groups()));
@@ -274,6 +259,88 @@ public final class JdbcEmbeddedAccessStore implements EmbeddedAccessStore {
             tx.events.add(new EaChange.PermissionsAffected(Set.of(username), Set.of()));
             return bumpThen(tx, () -> readUserOrFail(tx.con, username));
         });
+    }
+
+    @Override
+    public EaOutcome<EaUser> setPasswordAndReplaceKv(String username, String passwordHash,
+            boolean mustChangePassword, Instant at, String key, Optional<String> expectedValue, String newValue) {
+        Objects.requireNonNull(passwordHash, "passwordHash");
+        Objects.requireNonNull(expectedValue, "expectedValue");
+        Objects.requireNonNull(newValue, "newValue");
+        return inTx("setPasswordAndReplaceKv", tx -> {
+            Optional<EaKvEntry> current = readKv(tx.con, key);
+            if (!current.map(EaKvEntry::value).equals(expectedValue)) {
+                return EaOutcome.refused("conflict: " + key + " changed");
+            }
+            int rows;
+            try (PreparedStatement ps = tx.con.prepareStatement("UPDATE ea_users SET password_hash = ?, "
+                    + "must_change_password = ?, password_last_modified = ?, modified = ? WHERE username = ?")) {
+                ps.setString(1, passwordHash);
+                ps.setBoolean(2, mustChangePassword);
+                setInstant(ps, 3, at);
+                setInstant(ps, 4, at);
+                ps.setString(5, username);
+                rows = ps.executeUpdate();
+            }
+            if (rows == 0) {
+                return EaOutcome.refused("no such user: " + username);
+            }
+            long revision = current.map(EaKvEntry::revision).orElse(EaKvEntry.ABSENT_REVISION);
+            if (!casKv(tx.con, key, revision, newValue)) {
+                return EaOutcome.refused("conflict: " + key + " changed");
+            }
+            tx.events.add(new EaChange.PermissionsAffected(Set.of(username), Set.of()));
+            return bumpThen(tx, () -> readUserOrFail(tx.con, username));
+        });
+    }
+
+    @Override
+    public EaOutcome<Integer> updateAllUsers(UnaryOperator<EaUser> change) {
+        Objects.requireNonNull(change, "change");
+        return inTx("updateAllUsers", tx -> {
+            List<EaUser> users = queryUsers(tx.con, "SELECT " + USER_COLUMNS + " FROM ea_users ORDER BY username",
+                    null);
+            Set<String> changed = new TreeSet<>();
+            for (EaUser before : users) {
+                EaUser after = change.apply(before);
+                if (after == null || after.equals(before)) {
+                    continue;
+                }
+                if (!after.username().equals(before.username()) || !after.groups().equals(before.groups())
+                        || !Objects.equals(after.created(), before.created())) {
+                    return EaOutcome.refused("updateAllUsers may not change the username, memberships or "
+                            + "creation time of " + before.username());
+                }
+                updateUserRow(tx.con, after);
+                changed.add(after.username());
+            }
+            if (changed.isEmpty()) {
+                return EaOutcome.ok(0);
+            }
+            tx.events.add(new EaChange.PermissionsAffected(changed, Set.of()));
+            return bumpThen(tx, () -> EaOutcome.ok(changed.size()));
+        });
+    }
+
+    /** Writes every column of an existing user row except the username and {@code created}. */
+    private static void updateUserRow(Connection con, EaUser user) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement("UPDATE ea_users SET realm = ?, status = ?, "
+                + "password_hash = ?, must_change_password = ?, password_last_modified = ?, email = ?, "
+                + "admin = ?, last_login_time = ?, last_login_ip = ?, body = ?, modified = ? WHERE username = ?")) {
+            ps.setString(1, user.realm());
+            ps.setString(2, user.status().name());
+            ps.setString(3, user.passwordHash());
+            ps.setBoolean(4, user.mustChangePassword());
+            setInstant(ps, 5, user.passwordLastModified());
+            ps.setString(6, user.email());
+            ps.setBoolean(7, user.admin());
+            setInstant(ps, 8, user.lastLoginTime());
+            ps.setString(9, user.lastLoginIp());
+            ps.setString(10, EaJson.principalBody(user.customData()));
+            setInstant(ps, 11, user.modified());
+            ps.setString(12, user.username());
+            ps.executeUpdate();
+        }
     }
 
     @Override

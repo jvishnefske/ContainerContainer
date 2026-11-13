@@ -16,6 +16,7 @@ import org.artifactory.security.access.embedded.core.SigningKeys;
 import org.artifactory.security.access.embedded.core.TokenClaimsFactory;
 import org.artifactory.security.access.embedded.store.EaChangeBus;
 import org.artifactory.security.access.embedded.store.EmbeddedAccessStore;
+import org.artifactory.storage.db.security.service.access.BulkPasswordExpiry;
 import org.jfrog.access.client.AccessAuth;
 import org.jfrog.access.client.AccessClient;
 import org.jfrog.access.client.auth.AuthClient;
@@ -53,9 +54,12 @@ import org.jfrog.security.crypto.EncryptionWrapper;
 import java.security.cert.Certificate;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
@@ -73,11 +77,12 @@ import java.util.regex.Pattern;
  * Client-level calls: {@code ping}, {@code readiness} and {@code liveness} always succeed; {@code useAuth}
  * returns this client; {@code close} does nothing (the store and the bus belong to the caller);
  * {@code restCall}, {@code updateRootCertificate}, {@code updateServiceId}, {@code getAuth} and {@code lock} are
- * refused.
+ * refused. The two REST-only operations Artifactory needs, expiring and revalidating every password, are offered
+ * through {@link BulkPasswordExpiry} instead.
  * <p>
  * Build one with {@link #builder()}.
  */
-public final class EmbeddedAccessClient implements AccessClient {
+public final class EmbeddedAccessClient implements AccessClient, BulkPasswordExpiry {
 
     /** What {@code system().getAccessServerName()} answers. */
     public static final String SERVER_NAME = "embedded-access";
@@ -136,11 +141,12 @@ public final class EmbeddedAccessClient implements AccessClient {
         this.rt = rt;
         this.docs = new EaKvDocs(rt, null);
         EaTokenClient tokenAdapter = new EaTokenClient(rt, refreshWindow);
-        EaAuthenticator authenticator = new EaAuthenticator(rt, tokenAdapter);
         EaAuthSettingsClient settingsAdapter = new EaAuthSettingsClient(docs.withEncryption(encryption),
                 settingsListeners);
         EaConfigClient configAdapter = new EaConfigClient(docs, () -> realms(settingsAdapter),
                 settingsAdapter::getLdapConfig);
+        EaAuthenticator authenticator = new EaAuthenticator(rt, tokenAdapter,
+                () -> configAdapter.getAnonymousAccessEnabled().isEnabled());
         EaPermissionsClient permissionsAdapter = new EaPermissionsClient(rt);
         this.token = FailClosed.backedBy(TokenClient.class, "token", tokenAdapter);
         this.auth = FailClosed.backedBy(AuthClient.class, "auth",
@@ -461,6 +467,33 @@ public final class EmbeddedAccessClient implements AccessClient {
     @Override
     public LockClient lock(String name, String owner, Duration timeout) {
         throw new EmbeddedAccessUnsupportedException("client.lock");
+    }
+
+    /**
+     * Sets or clears the password-expired flag of every user in one store transaction. Expiring touches only users
+     * with a password (the passwordless {@code admin} before the claim, {@code anonymous} and external users have
+     * none to expire); revalidating clears the flag wherever it is set.
+     *
+     * @param expired {@code true} to expire, {@code false} to revalidate
+     * @return the number of users changed
+     * @throws org.jfrog.access.client.AccessClientException if the store refused
+     */
+    @Override
+    public int setPasswordExpiredForAllUsers(boolean expired) {
+        Instant now = rt.now();
+        return EaErrors.orThrow(rt.store().updateAllUsers(user -> {
+            boolean flagged = Boolean.parseBoolean(user.customData().get(EaModels.PASSWORD_EXPIRED));
+            if (expired == flagged || (expired && user.passwordHash() == null)) {
+                return user;
+            }
+            Map<String, String> custom = new TreeMap<>(user.customData());
+            if (expired) {
+                custom.put(EaModels.PASSWORD_EXPIRED, "true");
+            } else {
+                custom.remove(EaModels.PASSWORD_EXPIRED);
+            }
+            return user.toBuilder().customData(custom).modified(now).build();
+        }));
     }
 
     /** Does nothing: the store and the change bus belong to the caller. */

@@ -178,6 +178,22 @@ class InitialSetupFilterTest {
     }
 
     @Test
+    void stockAccessModePassesEverythingAsAnExplicitOptOut() throws Exception {
+        filter = new InitialSetupFilter(Optional::empty, () -> Optional.of(false));
+        assertPassed("GET", "/api/repositories");
+        assertPassed("PUT", "/libs/a.jar");
+    }
+
+    @Test
+    void embeddedOrUnknownModeStaysClosedWithoutService() throws Exception {
+        filter = new InitialSetupFilter(Optional::empty, () -> Optional.of(true));
+        assertBlocked("GET", "/api/repositories");
+        filter = new InitialSetupFilter(Optional::empty, Optional::empty);
+        assertBlocked("GET", "/api/repositories");
+        assertPassed("GET", "/api/system/ping");
+    }
+
+    @Test
     void failsClosedWhenTheContextHasNoService() throws Exception {
         ArtifactoryContext context = mock(ArtifactoryContext.class);
         when(context.beansForType(AdminBootstrapService.class)).thenReturn(Map.of());

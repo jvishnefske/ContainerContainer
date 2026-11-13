@@ -525,8 +525,19 @@ public class AccessUserGroupStoreService implements UserGroupStoreService {
         callPasswordExpiryApi(UNEXPIRE_PASSWORDS_API, "unexpire");
     }
 
+    /**
+     * Expires or revalidates every password. A client that implements {@link BulkPasswordExpiry} (the embedded
+     * Access client, which refuses raw REST calls) does it directly; any other client gets the stock Access REST
+     * call.
+     */
     private void callPasswordExpiryApi(String apiPath, String action) {
-        RestResponse response = getClient().restCall(RestRequest.post(apiPath).build());
+        AccessClient client = getClient();
+        if (client instanceof BulkPasswordExpiry bulk) {
+            int changed = bulk.setPasswordExpiredForAllUsers(EXPIRE_PASSWORDS_API.equals(apiPath));
+            log.info("Password {} applied to {} users", action, changed);
+            return;
+        }
+        RestResponse response = client.restCall(RestRequest.post(apiPath).build());
         if (!response.isSuccessful()) {
             throw new StorageException(String.format(
                     "Failed to %s password for all users via Access API. Status: %d, Response: %s",

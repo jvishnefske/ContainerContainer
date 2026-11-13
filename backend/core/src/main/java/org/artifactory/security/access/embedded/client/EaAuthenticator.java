@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 /**
  * Password and token authentication shared by the {@code auth()} and {@code grpcAuth()} surfaces.
@@ -45,18 +46,30 @@ import java.util.Set;
  * error code Artifactory's authentication providers map to Spring Security exceptions: 401 {@code UNAUTHORIZED}
  * (bad credentials), 401 {@code DISABLED}, 429 {@code TOO_MANY_REQUESTS} (locked) and 401 {@code PASSWORD_EXPIRED}.
  * <p>
+ * Anonymous (stock Access parity): the user {@value #ANONYMOUS_USERNAME} has no password and never authenticates
+ * by one. While anonymous access is enabled in the stored security configuration, a password login as exactly
+ * {@value #ANONYMOUS_USERNAME} returns that user whatever password is presented (anonymous credentials carry no
+ * secret; Artifactory's {@code AccessFilter} sends an empty one), provided the user exists and is enabled. While
+ * anonymous access is disabled it is refused like any bad credential; Artifactory then does not ask Access at
+ * all and uses its own anonymous token.
+ * <p>
  * Token rules: a JWT presented as a password is verified by {@link EaTokenClient#verify}; a user subject becomes a
  * {@link UserPrincipal} (a transient one if the user does not exist, refused if the user is disabled or locked)
  * and a service subject a {@link ServicePrincipal}.
  */
 final class EaAuthenticator {
 
+    /** The username of the anonymous user, as Artifactory's {@code UserInfo.ANONYMOUS}. */
+    static final String ANONYMOUS_USERNAME = "anonymous";
+
     private final EaRuntime rt;
     private final EaTokenClient tokens;
+    private final BooleanSupplier anonymousAccessEnabled;
 
-    EaAuthenticator(EaRuntime rt, EaTokenClient tokens) {
+    EaAuthenticator(EaRuntime rt, EaTokenClient tokens, BooleanSupplier anonymousAccessEnabled) {
         this.rt = rt;
         this.tokens = tokens;
+        this.anonymousAccessEnabled = anonymousAccessEnabled;
     }
 
     /**
@@ -73,6 +86,11 @@ final class EaAuthenticator {
                         () -> EaErrors.orThrow(rt.store().findUserByUsernameIgnoreCase(username)));
         String presented = password == null ? "" : password;
         boolean matches = rt.passwords().matches(presented, found.map(EaUser::passwordHash).orElse(null));
+        if (ANONYMOUS_USERNAME.equals(username) && found.isPresent()
+                && ANONYMOUS_USERNAME.equals(found.get().username())
+                && found.get().status() == EaUser.Status.ENABLED && anonymousAccessEnabled.getAsBoolean()) {
+            return found.get();
+        }
         if (found.isEmpty() || !matches || found.get().passwordHash() == null) {
             throw badCredentials();
         }

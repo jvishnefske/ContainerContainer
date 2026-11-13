@@ -32,6 +32,7 @@ import static jakarta.ws.rs.core.Response.Status.OK;
 import static java.lang.Boolean.FALSE;
 import static java.lang.Boolean.TRUE;
 import static org.artifactory.common.ConstantValues.accessTokenExpiresInDefault;
+import static org.artifactory.common.ConstantValues.accessEmbeddedEnabled;
 import static org.artifactory.common.ConstantValues.accessTokenProxyGenerationToAccess;
 import static org.artifactory.common.ConstantValues.accessTokenRejectServiceSubject;
 import static org.artifactory.common.ConstantValues.blockReferenceTokenOnLegacyTokenEndpoint;
@@ -81,6 +82,31 @@ class TokenResourceTest {
         lenient().when(artifactoryHome.getArtifactoryProperties()).thenReturn(artifactorySystemProperties);
         lenient().when(artifactorySystemProperties.getBooleanProperty(blockReferenceTokenOnLegacyTokenEndpoint))
                 .thenReturn(FALSE);
+        // Most tests cover the stock proxy-to-Access path; embedded mode has its own test.
+        lenient().when(artifactorySystemProperties.getBooleanProperty(accessEmbeddedEnabled)).thenReturn(FALSE);
+    }
+
+    @Test
+    void embeddedAccessNeverProxiesTokenCreationToAccess() {
+        String grantType = "client_credentials";
+        String username = "user1";
+        when(artifactorySystemProperties.getBooleanProperty(accessEmbeddedEnabled)).thenReturn(TRUE);
+        lenient().when(artifactorySystemProperties.getBooleanProperty(accessTokenProxyGenerationToAccess))
+                .thenReturn(TRUE);
+        when(artifactorySystemProperties.getLongProperty(accessTokenExpiresInDefault)).thenReturn(0L);
+        when(securityService.isAdmin()).thenReturn(true);
+        CreatedTokenInfo createdTokenInfo = mock(CreatedTokenInfo.class);
+        when(accessService.createToken(any(TokenSpec.class))).thenReturn(createdTokenInfo);
+        ServiceId serviceId = mock(ServiceId.class);
+        when(serviceId.getFormattedName()).thenReturn("cool-name");
+        when(accessService.getArtifactoryServiceId()).thenReturn(serviceId);
+
+        Response response =
+                tokenResource.createOrRefreshToken(grantType, username, null, null, null, null, false, null);
+
+        verify(accessService, never()).createTokenAsProxy(any(TokenSpec.class), any(), any());
+        verify(accessService, times(1)).createToken(any(TokenSpec.class));
+        assertEquals(OK.getStatusCode(), response.getStatus());
     }
 
     @AfterEach

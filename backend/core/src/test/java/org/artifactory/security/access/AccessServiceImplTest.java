@@ -213,6 +213,9 @@ public class AccessServiceImplTest extends ArtifactoryHomeBoundTest {
         mocks = openMocks(this);
 
         Mockito.reset(spyAccessConfigHolder);
+        // These tests cover the stock path against an external Access client; embedded mode has its own tests.
+        ArtifactoryHome.get().getArtifactoryProperties()
+                .setProperty(ConstantValues.accessEmbeddedEnabled.getPropertyName(), "false");
 
         when(applicationContext.getContextPath()).thenReturn("artifactory");
         AccessServiceImpl accessService =

@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 
 /**
  * Persistent state of the embedded Access implementation: users, groups, memberships, permissions, tokens and a
@@ -125,6 +126,38 @@ public interface EmbeddedAccessStore {
      */
     EaOutcome<EaUser> setPassword(String username, String passwordHash, boolean mustChangePassword,
             Instant passwordLastModified, Instant at);
+
+    /**
+     * Sets the password of an existing user and replaces a key-value entry, in one transaction: either both writes
+     * happen or neither does. This is the initial-admin claim (IA4): the administrator's password and the
+     * bootstrap state must change together.
+     * <p>
+     * The entry is replaced only if its current value is still {@code expectedValue} (absent when empty); otherwise
+     * the call is {@code Refused} with a reason starting with {@code conflict: } and nothing is written. The
+     * password time and {@code modified} are set to {@code at}.
+     *
+     * @param username           the username
+     * @param passwordHash       the encoded hash, not {@code null}
+     * @param mustChangePassword the IA5 flag
+     * @param at                 the modification time
+     * @param key                the {@code ea_kv} key
+     * @param expectedValue      the value the caller read, or empty if it read none
+     * @param newValue           the value to store
+     * @return the stored user, or {@code Refused} if the user is missing or the entry changed
+     */
+    EaOutcome<EaUser> setPasswordAndReplaceKv(String username, String passwordHash, boolean mustChangePassword,
+            Instant at, String key, Optional<String> expectedValue, String newValue);
+
+    /**
+     * Applies a pure change to every user in one transaction and writes the users it changed. The change may
+     * alter any stored field except the username, the memberships and {@code created}; a change to those is
+     * {@code Refused} and nothing is written. If any user changed, {@link #PERMISSIONS_LAST_UPDATED_KEY} advances
+     * once and one {@link EaChange.PermissionsAffected} naming the changed users is published.
+     *
+     * @param change computes the new state of a user; returns its argument (or an equal user) to leave it alone
+     * @return the number of users written
+     */
+    EaOutcome<Integer> updateAllUsers(UnaryOperator<EaUser> change);
 
     /**
      * Sets the status of an existing user and sets {@code modified} to {@code at}.

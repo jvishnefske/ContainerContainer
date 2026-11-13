@@ -978,6 +978,17 @@ public enum ConstantValues {
     nugetChocolateyMinCachePeriodSeconds("nuget.chocolatey.min.cache.period.seconds", 14400), // 4 hours
     gemsInfoFileMaxSizeBytes("gems.info.file.max.size.bytes", 50 * 1024 * 1024),
     mavenReleaseDatesParserForCurationEnabled("maven.release.dates.parser.for.curation.enabled", TRUE),
+    /**
+     * Runs Artifactory with the in-process embedded Access implementation instead of an external JFrog Access
+     * server (default). When {@code true}, no Access URL, join key or admin token is used, the proxy token
+     * generation of {@link #accessTokenProxyGenerationToAccess} is forced off, and the initial-admin bootstrap
+     * (IA1 to IA8) guards the server. {@code false} restores stock behaviour against an external Access server; the
+     * initial-admin bootstrap then does not apply.
+     */
+    accessEmbeddedEnabled("access.embedded.enabled", TRUE),
+    /** How often, in minutes, the embedded Access deletes expired token records (embedded mode only). */
+    accessEmbeddedTokenPurgeIntervalMinutes("access.embedded.tokenPurgeIntervalMinutes", 60),
+    /** Ignored, and treated as {@code false}, when {@link #accessEmbeddedEnabled} is on. */
     accessTokenProxyGenerationToAccess("access.token.proxy.generation.to.access", FALSE),
     blockReferenceTokenOnLegacyTokenEndpoint("access.token.block.reference.legacy.token.endpoint", TRUE),
     accessTokenRejectServiceSubject("access.token.reject.service.subject", TRUE),

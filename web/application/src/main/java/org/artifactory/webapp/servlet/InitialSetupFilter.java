@@ -16,6 +16,9 @@ import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.artifactory.api.context.ArtifactoryContext;
+import org.artifactory.common.home.ArtifactoryHome;
+import org.artifactory.common.ConstantValues;
 import org.artifactory.security.access.embedded.bootstrap.AdminBootstrapService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +45,11 @@ import java.util.function.Supplier;
  * filter fails closed: only ping and the probes pass. The filter ignores the filter shortcut attribute, so no
  * request skips it.
  * <p>
+ * <b>Stock-Access mode.</b> When {@code artifactory.access.embedded.enabled} is {@code false}, Artifactory uses an
+ * external JFrog Access server, no bootstrap service exists and IA1 to IA8 do not apply: the filter latches open and
+ * passes every request (an explicit opt-out; {@code AccessServiceImpl} logs a WARN at startup). While the mode
+ * cannot be read yet (no context or home), the filter behaves as in embedded mode and fails closed.
+ * <p>
  * Once a claim is observed the filter latches open and costs one volatile read per request. It sits in
  * {@code web.xml} between {@code ArtifactoryProbesFilter} and {@code AccessFilter}.
  */
@@ -61,6 +69,7 @@ public class InitialSetupFilter extends DelayedFilterBase {
     private static final Logger log = LoggerFactory.getLogger(InitialSetupFilter.class);
 
     private final Supplier<Optional<AdminBootstrapService>> explicitLookup;
+    private final Supplier<Optional<Boolean>> explicitEmbeddedMode;
     private volatile AdminBootstrapService service;
     private volatile boolean open;
 
@@ -75,7 +84,20 @@ public class InitialSetupFilter extends DelayedFilterBase {
      * @param lookup supplies the bootstrap service, or empty while unavailable; {@code null} for the context lookup
      */
     InitialSetupFilter(Supplier<Optional<AdminBootstrapService>> lookup) {
+        this(lookup, null);
+    }
+
+    /**
+     * Creates the filter with an explicit service lookup and an explicit embedded-mode answer, for tests.
+     *
+     * @param lookup       supplies the bootstrap service, or empty while unavailable; {@code null} for the context
+     *                     lookup
+     * @param embeddedMode supplies whether embedded access is enabled, or empty while unknown; {@code null} to read
+     *                     {@code artifactory.access.embedded.enabled} from the context's home
+     */
+    InitialSetupFilter(Supplier<Optional<AdminBootstrapService>> lookup, Supplier<Optional<Boolean>> embeddedMode) {
         this.explicitLookup = lookup;
+        this.explicitEmbeddedMode = embeddedMode;
     }
 
     @Override
@@ -87,6 +109,13 @@ public class InitialSetupFilter extends DelayedFilterBase {
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
         if (open) {
+            chain.doFilter(request, response);
+            return;
+        }
+        if (embeddedMode().filter(Boolean.FALSE::equals).isPresent()) {
+            open = true;
+            log.warn("Embedded access is disabled: the initial setup filter passes every request (IA1 to IA8 do "
+                    + "not apply with an external Access server)");
             chain.doFilter(request, response);
             return;
         }
@@ -140,6 +169,16 @@ public class InitialSetupFilter extends DelayedFilterBase {
                 : AdminBootstrapService.lookup(getArtifactoryContext());
         looked.ifPresent(s -> service = s);
         return looked;
+    }
+
+    private Optional<Boolean> embeddedMode() {
+        if (explicitEmbeddedMode != null) {
+            return explicitEmbeddedMode.get();
+        }
+        ArtifactoryContext context = getArtifactoryContext();
+        ArtifactoryHome home = context == null ? null : context.getArtifactoryHome();
+        return home == null ? Optional.empty()
+                : Optional.of(ConstantValues.accessEmbeddedEnabled.getBoolean(home));
     }
 
     private static void block(HttpServletResponse response) throws IOException {

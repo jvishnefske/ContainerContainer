@@ -492,4 +492,65 @@ abstract class AbstractEmbeddedAccessStoreTest {
         assertEquals("interfered", ok(store.getKv("n")).orElseThrow().value());
         assertEquals(Optional.empty(), ok(store.getKv("absent")));
     }
+
+    // ---- one-transaction claim and bulk user update (T4) ----
+
+    @Test
+    void setPasswordAndReplaceKvWritesBothOrNeither() throws InterruptedException {
+        Instant at = T0.plusSeconds(5);
+        long before = lastUpdated();
+        events.clear();
+        EaUser admin = ok(store.setPasswordAndReplaceKv("admin", "{bcrypt}h1", true, at, "bootstrap.state",
+                Optional.empty(), "s1"));
+        assertEquals("{bcrypt}h1", admin.passwordHash());
+        assertTrue(admin.mustChangePassword());
+        assertEquals(at, admin.passwordLastModified());
+        assertEquals("s1", ok(store.getKv("bootstrap.state")).orElseThrow().value());
+        assertTrue(lastUpdated() > before);
+        assertEquals(new EaChange.PermissionsAffected(Set.of("admin"), Set.of()), nextEvent());
+
+        // the stored value no longer matches what the caller read: nothing is written
+        assertRefused(store.setPasswordAndReplaceKv("admin", "{bcrypt}h2", false, at, "bootstrap.state",
+                Optional.empty(), "s2"), "conflict: ");
+        assertRefused(store.setPasswordAndReplaceKv("admin", "{bcrypt}h2", false, at, "bootstrap.state",
+                Optional.of("other"), "s2"), "conflict: ");
+        assertEquals("{bcrypt}h1", ok(store.getUser("admin")).orElseThrow().passwordHash());
+        assertEquals("s1", ok(store.getKv("bootstrap.state")).orElseThrow().value());
+
+        // a missing user rolls the key-value write back
+        assertRefused(store.setPasswordAndReplaceKv("ghost", "{bcrypt}h3", false, at, "bootstrap.state",
+                Optional.of("s1"), "s3"), "no such user");
+        assertEquals("s1", ok(store.getKv("bootstrap.state")).orElseThrow().value());
+
+        EaUser second = ok(store.setPasswordAndReplaceKv("admin", "{bcrypt}h4", false, at, "bootstrap.state",
+                Optional.of("s1"), "s4"));
+        assertFalse(second.mustChangePassword());
+        assertEquals(new EaKvEntry("bootstrap.state", 2, "s4"), ok(store.getKv("bootstrap.state")).orElseThrow());
+    }
+
+    @Test
+    void updateAllUsersWritesOnlyChangedUsersInOneTransaction() throws InterruptedException {
+        ok(store.createGroup(EaGroup.internal("g", T0)));
+        ok(store.createUser(user("alice", Set.of("g"))));
+        ok(store.createUser(user("bob", Set.of())));
+        long before = lastUpdated();
+        events.clear();
+        int changed = ok(store.updateAllUsers(u -> u.username().equals("admin") ? u
+                : u.toBuilder().email("new-" + u.username() + "@example.org").modified(T0.plusSeconds(1)).build()));
+        assertEquals(2, changed);
+        assertEquals("new-alice@example.org", ok(store.getUser("alice")).orElseThrow().email());
+        assertEquals(Set.of("g"), ok(store.getUser("alice")).orElseThrow().groups());
+        assertTrue(lastUpdated() > before);
+        assertEquals(new EaChange.PermissionsAffected(Set.of("alice", "bob"), Set.of()), nextEvent());
+
+        long unchanged = lastUpdated();
+        assertEquals(0, ok(store.updateAllUsers(u -> u)));
+        assertEquals(unchanged, lastUpdated(), "no change, no stamp");
+
+        // a forbidden change anywhere rolls back every earlier write of the same call
+        assertRefused(store.updateAllUsers(u -> u.username().equals("bob")
+                ? u.toBuilder().groups(Set.of("g")).build()
+                : u.toBuilder().email("x@example.org").build()), "may not change");
+        assertEquals("new-alice@example.org", ok(store.getUser("alice")).orElseThrow().email());
+    }
 }

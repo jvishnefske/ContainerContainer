@@ -179,9 +179,9 @@ public final class AdminBootstrapService {
     }
 
     /**
-     * Builds the production service for an Artifactory home: the token file goes to {@link
-     * ArtifactoryHome#getSecurityDir()}, and the token lifetime is {@link
-     * ConstantValues#securityInitialAdminTokenTtlHours} (the default 24 hours when not positive).
+     * Builds the production service for an Artifactory home: the token file goes to {@link #tokenDirectory}, and
+     * the token lifetime is {@link ConstantValues#securityInitialAdminTokenTtlHours} (the default 24 hours when not
+     * positive).
      *
      * @param home the Artifactory home
      * @param port the state port over the embedded store
@@ -194,7 +194,21 @@ public final class AdminBootstrapService {
             log.warn("{} must be positive; using {} hours",
                     ConstantValues.securityInitialAdminTokenTtlHours.getPropertyName(), ttl.toHours());
         }
-        return builder(port, home.getSecurityDir().toPath()).tokenTtl(ttl).build();
+        return builder(port, tokenDirectory(home)).tokenTtl(ttl).build();
+    }
+
+    /**
+     * The directory of the generated token file: the one holding {@code master.key}
+     * ({@code $JFROG_HOME/artifactory/var/etc/security/}). It is deliberately not
+     * {@link ArtifactoryHome#getSecurityDir()} ({@code var/etc/artifactory/security/}): Artifactory's configuration
+     * watcher mirrors files there into the database and restores them, which would store the setup token in clear
+     * and bring the file back after a claim deleted it.
+     *
+     * @param home the Artifactory home
+     * @return the directory
+     */
+    public static Path tokenDirectory(ArtifactoryHome home) {
+        return Path.of(home.getSysConfig().helper().getMasterKeyFile()).toAbsolutePath().getParent();
     }
 
     /**
