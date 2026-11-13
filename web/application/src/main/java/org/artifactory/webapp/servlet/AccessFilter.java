@@ -472,7 +472,7 @@ public class AccessFilter extends DelayedFilterBase implements SecurityListener 
             return;
         }
         try {
-            authFilterChain.doFilter(request, response, loginIdentifier, filterHolder, chain);
+            authFilterChain.doFilter(request, response, loginIdentifier, filterHolder, gatedChain(chain));
         } finally {
             String username = "non_authenticated_user";
             Authentication newAuthentication = SecurityContextHolder.getContext().getAuthentication();
@@ -659,6 +659,27 @@ public class AccessFilter extends DelayedFilterBase implements SecurityListener 
             request.setAttribute(AUTHENTICATED_USERNAME_ATTRIBUTE,
                     authentication != null ? authentication.getName() : "non_authenticated_user");
         }
+    }
+
+    /**
+     * Wraps {@code chain} for the fresh-authentication path, where the authentication filters populate the security
+     * context themselves and then continue the chain. The wrapper applies the same {@link MustChangePasswordGate} as
+     * {@link #useAuthentication}, so an uncached login of a user who must change the password is also answered 403
+     * unless the request is a change-password or logout call.
+     */
+    @VisibleForTesting
+    FilterChain gatedChain(FilterChain chain) {
+        return (req, resp) -> {
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (req instanceof HttpServletRequest httpRequest && resp instanceof HttpServletResponse httpResponse
+                    && MustChangePasswordGate.blocks(authentication, httpRequest, this::findStoredUser)) {
+                log.debug("Refusing request to '{}' for '{}': password change required",
+                        httpRequest.getRequestURI(), authentication.getName());
+                MustChangePasswordGate.refuse(httpResponse);
+                return;
+            }
+            chain.doFilter(req, resp);
+        };
     }
 
     private UserInfo findStoredUser(String username) {

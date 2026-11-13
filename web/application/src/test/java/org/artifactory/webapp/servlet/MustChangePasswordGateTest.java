@@ -138,6 +138,35 @@ class MustChangePasswordGateTest extends ArtifactoryHomeBoundJUnitTest {
     }
 
     @Test
+    void freshlyAuthenticatedFlaggedUserIsRefusedByTheGatedChain() throws Exception {
+        when(userGroupService.findUser("bob", false)).thenReturn(flagged());
+        SecurityContextHolder.getContext().setAuthentication(authenticated(flagged()));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.gatedChain(chain).doFilter(request("GET", "/api/repositories"), response);
+        assertEquals(403, response.getStatus());
+        assertEquals("password change required", response.getContentAsString());
+        verify(chain, never()).doFilter(any(), any());
+    }
+
+    @Test
+    void freshlyAuthenticatedFlaggedUserMayChangePasswordThroughTheGatedChain() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(authenticated(flagged()));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.gatedChain(chain).doFilter(
+                request("POST", "/api/security/users/authorization/changePassword"), response);
+        assertEquals(200, response.getStatus());
+        verify(chain).doFilter(any(), any());
+    }
+
+    @Test
+    void freshlyAuthenticatedUnflaggedUserPassesTheGatedChain() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(authenticated(new UserInfoBuilder("alice").build()));
+        filter.gatedChain(chain).doFilter(request("GET", "/api/repositories"), new MockHttpServletResponse());
+        verify(chain).doFilter(any(), any());
+        verify(userGroupService, never()).findUser(anyString(), anyBoolean());
+    }
+
+    @Test
     void unflaggedUserIsUnaffectedAndNotLookedUp() throws Exception {
         MockHttpServletResponse response = run(request("GET", "/api/repositories"), new UserInfoBuilder("bob").build());
         assertEquals(200, response.getStatus());
