@@ -33,7 +33,7 @@ jobs:
         run: mvn $MAVEN_ARGS -T 1C -DskipTests install
       - name: Keep the built artifacts for the test jobs
         run: tar -C ~/.m2/repository -cf artifactory-m2.tar org/artifactory
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: artifactory-m2
           path: artifactory-m2.tar
@@ -70,7 +70,7 @@ jobs:
         if: always()
         id: report
         run: echo "name=surefire-$(echo '${{ matrix.module }}' | tr '/' '-')" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: ${{ steps.report.outputs.name }}
