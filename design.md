@@ -836,6 +836,50 @@ hooks feed the same Java enforcement as Groovy ones: realm results go through P1
       `NativeAccessDeniedTest#theExampleModuleRunsWithNativeAccessDenied` (a child JVM started with
       `--illegal-native-access=deny` first sees `System.loadLibrary` refused, then runs the example module).
 
+## Initial administrator bootstrap
+
+Stock Artifactory, through JFrog Access, creates `admin` with the published password `password`. The fork ships no
+default credential. A fresh installation starts unclaimed: the administrator account exists but has no password, so no
+password can log in until an operator who can read a one-time setup secret sets one. That first claim is the forced
+initial password reset. These requirements bind the fork's own security layer that replaces JFrog Access.
+
+- [ ] IA1. No default credentials. On first start the built-in administrator (`admin`) is created with no password hash
+      and the state `unclaimed`; no password, API key or token authenticates as it. Nothing in the image, the Helm
+      values or the documentation contains a default password.
+- [ ] IA2. First start generates a one-time setup token from the JVM's secure random source (at least 128 bits,
+      URL-safe encoding) and writes it to `$JFROG_HOME/artifactory/var/etc/security/initial-admin.token`, owned by the
+      service user with mode 0600. Only the file's path is logged, never the token. An operator may supply the token
+      instead through a file named by `INITIAL_ADMIN_TOKEN_FILE` (for example a mounted Kubernetes Secret); then none
+      is generated. The token expires after a configurable period (default 24 hours); an expired token is replaced by
+      a new one on the next start, and the replacement is logged the same way.
+- [ ] IA3. While unclaimed, every endpoint except `GET /artifactory/api/system/ping`, readiness and the claim endpoint
+      answers 503 with a fixed "initial setup required" body. Anonymous access, plugins' executions and realms, and
+      the OCI `/v2` API are unavailable until the claim, so an unclaimed server exposes nothing.
+- [ ] IA4. `POST /artifactory/api/setup/initial-admin` with the setup token and a new password claims the server: the
+      token is compared in constant time, attempts are rate-limited per client address and in total, and the endpoint
+      accepts requests only while unclaimed. The password must pass the policy in IA6. On success the password is stored
+      only as a salted hash from a slow key-derivation function (PBKDF2-HMAC-SHA256 with at least 600,000 iterations,
+      or bcrypt with cost 12 or more; pure Java, no native code), the token is invalidated and its file deleted, the
+      state becomes `claimed`, and an audit event records the claim with the client address. A second claim, a reused
+      token or an expired token is refused with the same generic error.
+- [ ] IA5. Forced password change: an account flag `mustChangePassword` is set on every account whose password was not
+      chosen by its holder, namely an administrator password supplied by an operator (for example through a Helm
+      Secret, which is then only a temporary password), a password set or reset by another administrator, and a
+      password restored from a break-glass procedure. A login with such an account yields only the right to call the
+      change-password endpoint; every other request answers 403 "password change required" until the holder sets a
+      new password that differs from the temporary one. API keys and tokens cannot be created for such an account.
+- [ ] IA6. Password policy: at least 12 characters, not equal to or containing the username, not in a bundled list of
+      common and breached passwords, and checked without network access. The policy applies to the claim, to every
+      password change and to administrator resets.
+- [ ] IA7. External identity does not bypass the bootstrap: plugin realms (including the WASM OIDC module) never grant
+      administrator rights (P3), and mapping an external group to administrator is an explicit Java-side setting that
+      takes effect only after the server is claimed. The local administrator remains as the break-glass account when
+      the external identity provider is unavailable.
+- [ ] IA8. Tested end to end: unit tests for token generation, expiry, constant-time comparison, rate limits, the
+      policy and the state machine (unclaimed, claimed, must-change), and a live test that starts a fresh image,
+      confirms `admin`/`password` and every other default fail, reads the token from the volume, claims the server,
+      logs in, and confirms the token file is gone and a second claim is refused.
+
 ## Out of scope for the first iteration
 
 - Remote and virtual repositories of plugin types (the `HttpRepoFactory` hook
