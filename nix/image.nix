@@ -1,13 +1,16 @@
 # lib.mkImage: the minimal from-scratch OCI image of the fork (design.md N3, N6).
 #
-#   mkImage { pkgs, plugins ? [ ], extraConfig ? { }, accessUrl ? ..., accessGrpc ? ..., tag ? version }
+#   mkImage { pkgs, plugins ? [ ], extraConfig ? { }, tag ? version }
 #
 # Built with dockerTools.streamLayeredImage (no base image) from Nix-built parts only: busybox and CA certificates,
 # a jlink'd OpenJDK 25 (nix/image/jre.nix), Apache Tomcat 11 with the Derby and PostgreSQL drivers
 # (nix/image/tomcat.nix), the fork's webapp cut from packages.war (nix/image/webapp.nix), a config layer (POSIX sh
 # launcher, Tomcat configuration, the ROOT rewrite webapp, LICENSE and NOTICE) and the plugins. Nothing comes from
-# JFrog's stock image: no Access, router, frontend or any other JFrog service; the image needs an Access-compatible
-# service at ACCESS_URL / ACCESS_GRPC.
+# JFrog's stock image: no Access, router, frontend or any other JFrog service. Access runs embedded in the webapp
+# (users, groups, permissions and tokens in Artifactory's Derby or PostgreSQL database), so the image needs no other
+# service and carries no Access configuration and no default credential: on first start Artifactory writes a
+# one-time setup token to var/etc/security/initial-admin.token (or uses INITIAL_ADMIN_TOKEN_FILE), and the server
+# answers 503 until it is claimed with POST /artifactory/api/setup/initial-admin.
 #
 # Layers, in this order so that what changes least comes first: base (busybox, glibc, CA certificates), JRE, Tomcat,
 # third-party jars, the fork's jars, config, plugins, then the small customisation layer (/etc/passwd, /bin,
@@ -20,8 +23,6 @@
 #                var/etc/artifactory/plugins by the launcher on each start. Allowed: *.groovy, *.wasm (with its
 #                *.wasm.yaml), *.wasm.yaml; names must be unique.
 #   extraConfig  merged into the OCI image config (Env lists are appended, Labels merged).
-#   accessUrl, accessGrpc
-#                defaults of ACCESS_URL and ACCESS_GRPC (a sidecar Access on localhost by default).
 #
 # Result: a derivation with <name>-<tag>.oci.tar (OCI layout with zstd layers, also loadable by docker load) and
 # layers.tsv (per-layer uncompressed and compressed sizes). passthru: stream (the uncompressed docker-archive
@@ -37,8 +38,6 @@
   created ? "1970-01-01T00:00:01Z",
   plugins ? [ ],
   extraConfig ? { },
-  accessUrl ? "http://localhost:8040/access",
-  accessGrpc ? "localhost:8045",
   name ? "containercontainer",
   tag ? version,
   zstdLevel ? 19,
@@ -202,14 +201,12 @@ let
       "PATH=/bin"
       "JAVA_HOME=${jre}"
       "JF_PRODUCT_HOME=${home}"
-      "ACCESS_URL=${accessUrl}"
-      "ACCESS_GRPC=${accessGrpc}"
       "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"
     ];
     Labels = {
       "org.opencontainers.image.title" = "ContainerContainer";
       "org.opencontainers.image.description" =
-        "Artifactory OSS 7.161.26 fork (REST, repositories, Groovy and WASM plugins); needs an Access-compatible service at ACCESS_URL";
+        "Artifactory OSS 7.161.26 fork (REST, repositories, Groovy and WASM plugins) with embedded access; claim it with the setup token in var/etc/security/initial-admin.token";
       "org.opencontainers.image.version" = version;
       "org.opencontainers.image.revision" = sourceRev;
       "org.opencontainers.image.source" = repo;

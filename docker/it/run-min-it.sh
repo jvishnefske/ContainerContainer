@@ -1,60 +1,52 @@
 #!/usr/bin/env bash
-# Live integration test of the minimal from-scratch OCI image (design.md N3, N6): packages.oci-example, which is
-# lib.mkImage with the public example plugins (plugins/oci/oci-registry.groovy and the echo-realm WASM module).
-#
-# TEST STAND-IN, NOT PART OF ANY BUILD OR RELEASE: the minimal image ships no JFrog Access (closed source, not
-# redistributable) and expects an Access-compatible service at ACCESS_URL / ACCESS_GRPC. Until the separate
-# replacement service exists, this script runs JFrog's stock image (pinned by digest) in a throwaway container
-# rt-min-it-access that starts only the Access webapp bundled in it. That container exists only for the duration of
-# this test, on a private docker network; nothing from it is copied into, built into or published with the image.
-# Access binds its gRPC port to 127.0.0.1 only, so the stand-in runs as a sidecar: rt-min-it joins its network
-# namespace (as two containers of one pod would) and uses the image's default ACCESS_URL and ACCESS_GRPC
-# (localhost:8040 and localhost:8045).
+# Live integration test of the minimal from-scratch OCI image (design.md N3, N6, IA1-IA8): packages.oci-example,
+# which is lib.mkImage with the public example plugins (plugins/oci/oci-registry.groovy and the echo-realm WASM
+# module). The image runs alone: access is embedded, so there is no Access service, sidecar, join key or network.
 #
 #  1. Builds packages.oci-example with Nix and loads it with `docker load` (SKIP_BUILD=1 reuses a loaded image;
 #     IMAGE_TAR loads a given archive instead).
-#  2. Creates the private network rt-min-it-net and a random join key; starts rt-min-it-access (Access only, from
-#     the stock image, listening on localhost) with that key, then rt-min-it (the minimal image) in the same network
-#     namespace with the same join key and the default Access settings. Only Artifactory's port 8081 is published,
-#     on 127.0.0.1 (the port mapping belongs to the namespace owner, rt-min-it-access).
-#  3. Asserts, one PASS/FAIL line each: ping; admin login (and a wrong password refused); the image runs as a
-#     non-root user; a YAML configuration PATCH creates a Generic repository; deploy and download round trip with
-#     matching checksums; an Access token minted through Artifactory works as a Bearer token; the oci-registry
-#     plugin is loaded, /v2/ answers 401 to anonymous and 200 to admin, and a blob and manifest push and pull round
-#     trip through /v2/; the echo-realm WASM plugin is loaded and a realm Bearer token runs its echoMint execution
-#     as the realm user; no web UI is served.
+#  2. Starts rt-min-it on a fresh volume, publishing only port 8081 on 127.0.0.1.
+#  3. Before the claim (IA1, IA2, IA4, IA8): ping and the probes answer; admin:password, an empty password, anonymous
+#     requests and arbitrary endpoints (REST, token mint, repository content, /v2/) all answer 503 with the fixed
+#     body; the setup token file exists, is private (0600) and long enough.
+#  4. The claim (IA3, IA5): a wrong token and a weak password are refused with 400 and do not use up the token; the
+#     right token with a random strong password (generated here, kept only in this shell and the private work
+#     directory) answers 200; the token file is gone; a second claim with the same token answers 400;
+#     admin:password and an empty password answer 401 and the new password logs in.
+#  5. Every functional check, one PASS/FAIL line each, as the claimed administrator: the image runs as a non-root
+#     user; a YAML configuration PATCH creates a Generic repository; deploy and download round trip with matching
+#     checksums; an access token minted through Artifactory works as a Bearer token and a tampered one does not;
+#     the oci-registry plugin is loaded, /v2/ answers 401 to anonymous and 200 to admin, and a blob and manifest
+#     push and pull round trip through /v2/; the echo-realm WASM plugin is loaded and a realm Bearer token runs
+#     its echoMint execution as the realm user; no web UI is served.
+#  6. Restart (IA6, embedded access persistence): after `docker restart` the server is still claimed (no 503, the
+#     old setup token is refused, the token file is still gone, no new one is written), the administrator
+#     password still works, and the access token minted before the restart still verifies.
 #
-# Clients talk only to 127.0.0.1:<port> of the containers this script starts; the two containers talk to each other
-# over their shared localhost. No address range is probed.
+# Clients talk only to 127.0.0.1:<port> of the container this script starts. No address range is probed.
 #
-# Containers are named rt-min-it*, the volumes rt-min-it-var and rt-min-it-access-var, the network rt-min-it-net;
-# leftovers with those names are removed first, and everything is removed again on exit.
+# The container is named rt-min-it and the volume rt-min-it-var; leftovers with those names are removed first, and
+# everything is removed again on exit.
 #
 # Usage: docker/it/run-min-it.sh   (env: SKIP_BUILD=1, IMAGE, IMAGE_TAR, LOG_DIR keeps container logs, TMPDIR)
-# Requires ADMIN_USER and ADMIN_PASSWORD in the environment: no default administrator credential is shipped.
 # Exit status: 0 when every assertion passes, 1 otherwise.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VERSION="$(cat "$ROOT/nix/version.txt")"
 IMAGE="${IMAGE:-containercontainer:$VERSION-example}"
-# The stock image, used here only as the source of the Access test stand-in (digest as in design.md B2).
-STOCK_IMAGE=releases-docker.jfrog.io/jfrog/artifactory-oss@sha256:d103c0464d33645acdcbfbb6fc61310d7faf14c9893975cbee562487eaeac1d1
 NAME=rt-min-it
-ACCESS=rt-min-it-access
-NET=rt-min-it-net
 VOLUME=rt-min-it-var
-ACCESS_VOLUME=rt-min-it-access-var
 VAR=/var/opt/jfrog/artifactory
-# Administrator credentials come from the environment; no default is shipped (design IA1).
-: "${ADMIN_USER:?set ADMIN_USER (and ADMIN_PASSWORD) to the administrator credentials of the server under test}"
-: "${ADMIN_PASSWORD:?set ADMIN_PASSWORD to the password of ADMIN_USER; there is no default password}"
-ADMIN="$ADMIN_USER:$ADMIN_PASSWORD"
 ISSUER=echo-it
 STARTUP_TIMEOUT=600
 LOG_DIR="${LOG_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/rt-min-it-logs.XXXXXX")}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/rt-min-it-work.XXXXXX")"
+chmod 0700 "$WORK"
 mkdir -p "$LOG_DIR"
+# shellcheck source=initial-admin.sh
+. "$ROOT/docker/it/initial-admin.sh"
+ADMIN=""
 
 PASSED=0
 FAILED=0
@@ -72,15 +64,12 @@ check() { # check <name> <condition-command...>; the detail is taken from $DETAI
 }
 
 remove_all() {
-    docker rm -f "$NAME" "$ACCESS" >/dev/null 2>&1 || true
-    docker volume rm "$VOLUME" "$ACCESS_VOLUME" >/dev/null 2>&1 || true
-    docker network rm "$NET" >/dev/null 2>&1 || true
+    docker rm -f "$NAME" >/dev/null 2>&1 || true
+    docker volume rm "$VOLUME" >/dev/null 2>&1 || true
 }
 cleanup() {
     local rc=$?
-    for c in "$NAME" "$ACCESS"; do
-        docker container inspect "$c" >/dev/null 2>&1 && docker logs "$c" > "$LOG_DIR/$c.log" 2>&1
-    done
+    docker container inspect "$NAME" >/dev/null 2>&1 && docker logs "$NAME" > "$LOG_DIR/$NAME.log" 2>&1
     docker exec "$NAME" sh -c "cat $VAR/log/artifactory-service.log" > "$LOG_DIR/artifactory-service.log" 2>&1 \
         || true
     remove_all
@@ -94,6 +83,7 @@ trap 'exit 130' INT TERM
 # --- HTTP helpers (127.0.0.1 only). Each sets CODE, writes the body to $WORK/body and the headers to $WORK/headers.
 http() { CODE="$(curl -s -m 120 -D "$WORK/headers" -o "$WORK/body" -w '%{http_code}' "$@")" || CODE=000; }
 as_admin() { http -u "$ADMIN" "$@"; }
+code_of() { http "$@"; printf '%s' "$CODE"; }
 hdr() { grep -i "^$1:" "$WORK/headers" | head -1 | cut -d: -f2- | tr -d '\r' | sed 's/^ *//'; }
 b64url() { base64 -w0 | tr '+/' '-_' | tr -d '='; }
 realm_token() { # realm_token <sub>: an unsigned JWT-shaped token the echo-realm example accepts (insecure by design)
@@ -105,11 +95,9 @@ sha() { echo "sha256:$(sha256sum "$1" | cut -d' ' -f1)"; }
 wait_for_ping() { # bounded by STARTUP_TIMEOUT
     local waited=0
     while [ "$waited" -lt "$STARTUP_TIMEOUT" ]; do
-        for c in "$NAME" "$ACCESS"; do
-            if [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" != true ]; then
-                say "$c is not running"; return 1
-            fi
-        done
+        if [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" != true ]; then
+            say "$NAME is not running"; return 1
+        fi
         http "$BASE/api/system/ping"
         if [ "$CODE" = 200 ] && [ "$(cat "$WORK/body")" = OK ]; then say "$NAME answered ping after ${waited}s"; return 0; fi
         sleep 5; waited=$((waited + 5))
@@ -144,79 +132,79 @@ elif [ "${SKIP_BUILD:-0}" != 1 ]; then
     docker load -i "$WORK"/oci/*.oci.tar >/dev/null || { say "docker load failed"; exit 1; }
 fi
 docker image inspect "$IMAGE" >/dev/null || { say "no image $IMAGE"; exit 1; }
-docker image inspect "$STOCK_IMAGE" >/dev/null 2>&1 || docker pull -q "$STOCK_IMAGE" >/dev/null \
-    || { say "cannot pull the Access stand-in image"; exit 1; }
 say "minimal image $(docker image inspect "$IMAGE" --format '{{.Id}}')"
 
-JOIN_KEY="$(openssl rand -hex 32)"
-docker network create "$NET" >/dev/null
 docker volume create "$VOLUME" >/dev/null
-docker volume create "$ACCESS_VOLUME" >/dev/null
-
-# The Access stand-in: the stock image's bundled Access webapp in its own Tomcat on 8040 (HTTP) and 8045 (gRPC),
-# nothing else from that image started (no router, no Artifactory, no frontend).
-cat > "$WORK/access.sh" <<'EOF'
-set -eu
-H=/opt/jfrog/artifactory; V=$H/var; APP=$H/app; T=$APP/access/tomcat
-mkdir -p "$V/etc/security" "$V/etc/access/tomcat/conf" "$V/work/access/tomcat/temp" "$V/log"
-printf '%s' "$JOIN_KEY" > "$V/etc/security/join.key"
-[ -s "$V/etc/security/master.key" ] || od -An -tx1 -N32 /dev/urandom | tr -d ' \n' > "$V/etc/security/master.key"
-cat > "$V/etc/system.yaml" <<YAML
-configVersion: 1
-shared:
-  node:
-    id: rt-min-it-access
-    ip: 127.0.0.1
-  database:
-    allowNonPostgresql: true
-router:
-  enabled: false
-access:
-  http:
-    port: 8040
-  grpc:
-    port: 8045
-YAML
-cat > "$V/etc/access/tomcat/conf/server.xml" <<XML
-<Server port="-1" shutdown="SHUTDOWN"><Service name="Catalina">
- <Connector port="8040" address="localhost" maxThreads="50" sendReasonPhrase="false" encodedSolidusHandling="decode"/>
- <Engine name="Catalina" defaultHost="localhost"><Host name="localhost" workDir="$V/work/access/tomcat" appBase="webapps" startStopThreads="1"/></Engine>
-</Service></Server>
-XML
-exec "$APP/third-party/java/bin/java" -Xmx768m -XX:+UseG1GC \
-  --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED \
-  --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED \
-  --add-opens=java.base/java.util.concurrent=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED \
-  --add-opens=java.base/java.text=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED \
-  --add-opens=java.rmi/sun.rmi.transport=ALL-UNNAMED --enable-native-access=ALL-UNNAMED \
-  -Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager \
-  -Djava.util.logging.config.file=$T/conf/logging.properties -Dfile.encoding=UTF8 \
-  -Djava.security.egd=file:/dev/./urandom -Djf.product.home=$H \
-  -classpath $T/bin/bootstrap.jar:$T/bin/tomcat-juli.jar -Dcatalina.base=$T -Dcatalina.home=$T \
-  -Djava.io.tmpdir=$V/work/access/tomcat/temp org.apache.catalina.startup.Bootstrap start
-EOF
-chmod 0644 "$WORK/access.sh"
-docker run -d --name "$ACCESS" --network "$NET" -p "127.0.0.1:$PORT:8081" -e JOIN_KEY="$JOIN_KEY" \
-    -v "$ACCESS_VOLUME:$VAR" -v "$WORK/access.sh:/rt-min-it-access.sh:ro" --entrypoint bash "$STOCK_IMAGE" \
-    /rt-min-it-access.sh >/dev/null
-
-# The minimal image with its defaults (ACCESS_URL http://localhost:8040/access, ACCESS_GRPC localhost:8045).
-docker run -d --name "$NAME" --network "container:$ACCESS" -v "$VOLUME:$VAR" \
-    -e JF_SHARED_SECURITY_JOINKEY="$JOIN_KEY" "$IMAGE" >/dev/null
+docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8081" -v "$VOLUME:$VAR" "$IMAGE" >/dev/null
 wait_for_ping || { DETAIL="see $LOG_DIR"; check "setup.artifactory-starts" false; exit 1; }
-DETAIL="GET /api/system/ping OK"
+DETAIL="GET /api/system/ping OK before the claim"
 check "N3.ping" true
 
 # --- Image basics -------------------------------------------------------------------------------------------------
 uid="$(docker exec "$NAME" id -u)"
 user="$(docker image inspect "$IMAGE" --format '{{.Config.User}}')"
-DETAIL="process uid $uid, image user $user"
-check "N6.runs-as-non-root" eval '[ "$uid" = 1030 ] && [ "$user" = 1030:1030 ]'
+env_access="$(docker image inspect "$IMAGE" --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -c '^ACCESS_')"
+DETAIL="process uid $uid, image user $user, ACCESS_* variables in the image: $env_access"
+check "N6.runs-as-non-root-without-access-config" eval '[ "$uid" = 1030 ] && [ "$user" = 1030:1030 ] && [ "$env_access" = 0 ]'
+
+# --- Before the claim: closed, no default credential (IA1, IA2, IA4, IA8) ------------------------------------------
+TOKEN_FILE_INFO="$(docker exec "$NAME" stat -c '%a %s' "$IA_TOKEN_PATH" 2>/dev/null)"
+SETUP_TOKEN="$(ia_read_token "$NAME")"
+DETAIL="token file mode/size: ${TOKEN_FILE_INFO:-missing}, token ${#SETUP_TOKEN} chars"
+check "IA2.setup-token-file-written-private" eval '[ "${TOKEN_FILE_INFO%% *}" = 600 ] && [ "${#SETUP_TOKEN}" -ge 22 ]'
+
+ready="$(code_of "$BASE/api/v1/system/readiness")"
+live="$(code_of "$BASE/api/v1/system/liveness")"
+DETAIL="readiness $ready, liveness $live"
+check "IA8.probes-answer-before-claim" eval '[ "$ready" = 200 ] && [ "$live" = 200 ]'
+
+default_pw="$(code_of -u admin:password "$BASE/api/system/version")"
+blocked_body="$(cat "$WORK/body")"
+empty_pw="$(code_of -u admin: "$BASE/api/system/version")"
+anon="$(code_of "$BASE/api/repositories")"
+DETAIL="admin:password $default_pw ('$blocked_body'), admin with empty password $empty_pw, anonymous $anon"
+check "IA1.IA8.default-and-empty-password-503-before-claim" eval '[ "$default_pw" = 503 ] && [ "$empty_pw" = 503 ] && [ "$anon" = 503 ] && [ "$blocked_body" = "initial setup required" ]'
+
+blocked=""
+for req in "GET $BASE/api/system/configuration" "GET $BASE/api/security/users" "POST $BASE/api/security/token" \
+           "GET $BASE/api/plugins" "PUT $BASE/min-generic/a.txt" "GET $BASE/api/storage/min-generic" \
+           "GET $REG/v2/" "GET $BASE/webapp/" "GET $BASE/api/system/ping/../version" \
+           "POST $BASE/api/setup/initial-admin/x"; do
+    blocked="$blocked $(code_of -X "${req%% *}" -u admin:password "${req#* }")"
+done
+DETAIL="arbitrary endpoints:$blocked"
+check "IA8.arbitrary-endpoints-503-before-claim" eval '[ "$(tr " " "\n" <<< "$blocked" | grep -v "^$" | sort -u)" = 503 ]'
+
+# --- The claim (IA3, IA5) --------------------------------------------------------------------------------------------
+ADMIN_USER=admin
+ADMIN_PASSWORD="$(ia_password)"
+wrong="$(ia_claim "$BASE" "$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')" "$ADMIN_PASSWORD")"
+wrong_body="$(cat "$WORK/ia-claim.out")"
+weak="$(ia_claim "$BASE" "$SETUP_TOKEN" password)"
+weak_body="$(cat "$WORK/ia-claim.out")"
+DETAIL="wrong token $wrong ($wrong_body), right token with weak password $weak ($weak_body)"
+check "IA3.wrong-token-and-weak-password-400" eval '[ "$wrong" = 400 ] && [ "$weak" = 400 ] && [ "$wrong_body" = "$weak_body" ]'
+
+claim="$(ia_claim "$BASE" "$SETUP_TOKEN" "$ADMIN_PASSWORD")"
+claim_body="$(cat "$WORK/ia-claim.out")"
+ADMIN="$ADMIN_USER:$ADMIN_PASSWORD"
+DETAIL="claim $claim ($claim_body)"
+check "IA3.claim-with-setup-token-200" eval '[ "$claim" = 200 ]'
+
+if ia_token_present "$NAME"; then gone=present; else gone=gone; fi
+DETAIL="token file after claim: $gone"
+check "IA5.token-file-deleted-after-claim" test "$gone" = gone
+
+second="$(ia_claim "$BASE" "$SETUP_TOKEN" "$(ia_password)")"
+DETAIL="second claim with the same token $second ($(cat "$WORK/ia-claim.out"))"
+check "IA5.second-claim-400" test "$second" = 400
 
 as_admin "$BASE/api/system/version"; v="$CODE"; version="$(jq -r '.version // empty' "$WORK/body" 2>/dev/null)"
-http -u admin:wrong-password "$BASE/api/system/version"; wrong="$CODE"
-DETAIL="admin $v (version $version), wrong password $wrong"
-check "N3.admin-login" eval '[ "$v" = 200 ] && [ "$wrong" = 401 ]'
+default_pw="$(code_of -u admin:password "$BASE/api/system/version")"
+empty_pw="$(code_of -u admin: "$BASE/api/system/version")"
+wrong_pw="$(code_of -u admin:wrong-password "$BASE/api/system/version")"
+DETAIL="claimed password $v (version $version), admin:password $default_pw, empty password $empty_pw, wrong password $wrong_pw"
+check "IA1.N3.admin-login-after-claim-default-password-401" eval '[ "$v" = 200 ] && [ "$default_pw" = 401 ] && [ "$empty_pw" = 401 ] && [ "$wrong_pw" = 401 ]'
 
 # --- Repository, deploy and download -------------------------------------------------------------------------------
 printf 'localRepositories:\n  min-generic:\n    type: generic\n  oci-local:\n    type: generic\n    pluginPackageType: oci-registry\n' \
@@ -238,7 +226,7 @@ DETAIL="PUT $put, GET $get ($same), stored sha256 ${stored_sha:0:12}..."
 check "N3.deploy-download-round-trip" eval '[ "$put" = 201 ] && [ "$get" = 200 ] && [ "$same" = identical ] && [ "sha256:$stored_sha" = "$(sha "$WORK/file.bin")" ]'
 
 # --- Access tokens --------------------------------------------------------------------------------------------------
-as_admin -X POST -d username=admin -d scope=member-of-groups:readers -d expires_in=600 "$BASE/api/security/token"
+as_admin -X POST -d username=admin -d scope=member-of-groups:readers -d expires_in=3600 "$BASE/api/security/token"
 mint="$CODE"; TOKEN="$(jq -r '.access_token // empty' "$WORK/body" 2>/dev/null)"
 http -H "Authorization: Bearer $TOKEN" "$BASE/api/repositories"; use="$CODE"
 http -H "Authorization: Bearer ${TOKEN}x" "$BASE/api/repositories/min-generic"; bad="$CODE"
@@ -275,21 +263,48 @@ DETAIL="blobs pushed $pushed/2, manifest PUT $mput GET $mget ($msame), blob GET 
 check "N3.oci-push-pull-round-trip" eval '[ "$pushed" = 2 ] && [ "$mput" = 201 ] && [ "$mget" = 200 ] && [ "$bget" = 200 ] && [ "$msame$bsame" = identicalidentical ]'
 
 # --- Plugins: WASM echo-realm ---------------------------------------------------------------------------------------
-DETAIL="echo-realm: $(jq -c '.plugins["echo-realm"] // empty' "$WORK/plugins.json" 2>/dev/null)"
+DETAIL="echo-realm:$(jq -c '.plugins["echo-realm"] // empty' "$WORK/plugins.json" 2>/dev/null)"
 check "N3.echo-realm-wasm-plugin-loaded" eval 'jq -e ".plugins[\"echo-realm\"].status == \"Loaded\" and .plugins[\"echo-realm\"].realms == \"echo\"" "$WORK/plugins.json" >/dev/null'
 http -H "Authorization: Bearer $(realm_token ok:carol)" -X POST "$BASE/api/plugins/execute/echoMint"
 caller="$(jq -r '.caller // empty' "$WORK/body" 2>/dev/null)"; minted="$(jq -r '.access_token // empty' "$WORK/body" 2>/dev/null)"
 c="$CODE"
+# Embedded access seeds no groups or permission targets (stock Access seeds a readers group and the Anything
+# permission target, and OSS has no API to create groups), so the realm user gets read on min-generic directly,
+# through the UI REST API (the public security API is a Pro feature in OSS), once its login has created it.
+as_admin -X POST -H 'Content-Type: application/json' -H 'X-Requested-With: XMLHttpRequest' \
+    -d '{"name":"min-it-carol","repoPermission":{"repoKeys":["min-generic"],"includePatterns":["**"],"excludePatterns":[],"userPermissionActions":[{"principal":"carol","actions":["read"]}],"groupPermissionActions":[]}}' \
+    "$BASE/ui/permissiontargets"; perm="$CODE"
 http -H "Authorization: Bearer $minted" "$BASE/api/storage/min-generic"; used="$CODE"
 http -H "Authorization: Bearer $(realm_token reject:x)" -X POST "$BASE/api/plugins/execute/echoMint"; rejected="$CODE"
-DETAIL="echoMint $c as '$caller', minted token use $used, rejected token $rejected"
-check "N3.echo-realm-bearer-login-runs-execution" eval '[ "$c" = 200 ] && [ "$caller" = carol ] && [ -n "$minted" ] && [ "$used" = 200 ] && [ "$rejected" = 401 ]'
+DETAIL="echoMint $c as '$caller', read permission for carol $perm, minted token use $used, rejected token $rejected"
+check "N3.echo-realm-bearer-login-runs-execution" eval '[ "$c" = 200 ] && [ "$caller" = carol ] && [ -n "$minted" ] && [ "$perm" = 201 ] && [ "$used" = 200 ] && [ "$rejected" = 401 ]'
 
 # --- No web UI ------------------------------------------------------------------------------------------------------
 http "$BASE/webapp/"; webapp="$CODE"
 http "$REG/ui/"; ui="$CODE"
 DETAIL="/artifactory/webapp/ $webapp, /ui/ $ui"
 check "N6.no-web-ui" eval '[ "$webapp" != 200 ] && [ "$ui" != 200 ]'
+
+# --- Restart: still claimed, tokens still verify (IA6) --------------------------------------------------------------
+say "restarting $NAME"
+docker restart -t 120 "$NAME" >/dev/null
+if wait_for_ping; then
+    anon="$(code_of "$BASE/api/repositories")"
+    adm="$(code_of -u "$ADMIN" "$BASE/api/system/version")"
+    default_pw="$(code_of -u admin:password "$BASE/api/system/version")"
+    again="$(ia_claim "$BASE" "$SETUP_TOKEN" "$(ia_password)")"
+    if ia_token_present "$NAME"; then gone=present; else gone=gone; fi
+    DETAIL="anonymous $anon, admin $adm, admin:password $default_pw, claim with the old token $again, token file $gone"
+    check "IA6.still-claimed-after-restart" eval '[ "$anon" != 503 ] && [ "$adm" = 200 ] && [ "$default_pw" = 401 ] && [ "$again" = 400 ] && [ "$gone" = gone ]'
+    old="$(code_of -H "Authorization: Bearer $TOKEN" "$BASE/api/repositories")"
+    tampered="$(code_of -H "Authorization: Bearer ${TOKEN}x" "$BASE/api/repositories/min-generic")"
+    as_admin "$BASE/min-generic/a/file.bin"; get="$CODE"
+    same="$(cmp -s "$WORK/file.bin" "$WORK/body" && echo identical || echo different)"
+    DETAIL="token minted before restart $old, tampered $tampered, artifact GET $get ($same)"
+    check "IA6.old-token-verifies-after-restart" eval '[ "$old" = 200 ] && [ "$tampered" = 401 ] && [ "$get" = 200 ] && [ "$same" = identical ]'
+else
+    DETAIL="see $LOG_DIR"; check "IA6.restart" false
+fi
 
 echo
 say "$PASSED passed, $FAILED failed"

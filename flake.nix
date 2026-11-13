@@ -95,7 +95,7 @@
         in
         "${s 0 4}-${s 4 2}-${s 6 2}T${s 8 2}:${s 10 2}:${s 12 2}Z";
 
-      # lib.mkImage { pkgs, plugins ? [ ], extraConfig ? { }, accessUrl ? ..., accessGrpc ? ..., tag ? version }:
+      # lib.mkImage { pkgs, plugins ? [ ], extraConfig ? { }, tag ? version }:
       # the minimal from-scratch OCI image (nix/image.nix) around this flake's WAR for pkgs' system.
       mkImage =
         args:
@@ -210,6 +210,27 @@
               "echo-realm.wasm.yaml"
             ];
           };
+          # The structure check must reject an image that carries Access configuration (here ACCESS_URL).
+          image-no-access-rejects =
+            let
+              failed = pkgs.testers.testBuildFailure (
+                pkgs.callPackage ./nix/image/check-image.nix {
+                  image = mkImage {
+                    inherit pkgs;
+                    extraConfig.Env = [ "ACCESS_URL=http://access.example:8040/access" ];
+                    tag = "with-access";
+                    zstdLevel = 1;
+                  };
+                  inherit (p) war;
+                }
+              );
+            in
+            pkgs.runCommand "check-image-no-access-rejects" { } ''
+              grep -q "image check failed: image config sets \['ACCESS_URL'\]" ${failed}/testBuildFailure.log
+              touch $out
+            '';
+          # The Helm chart lints, renders with every option, and holds no password value.
+          helm-chart = pkgs.callPackage ./nix/checks/helm-chart.nix { chart = ./deploy/helm/containercontainer; };
           jre-modules = pkgs.callPackage ./nix/image/jre-modules-check.nix { image = p.oci; };
           # mkImage evaluates with every argument and rejects a .wasm without its manifest.
           image-plugin-rules =
@@ -233,8 +254,6 @@
                         Env = [ "JAVA_OPTIONS=-Xmx1g" ];
                         Labels."org.example.extra" = "yes";
                       };
-                      accessUrl = "http://access.example:8040/access";
-                      accessGrpc = "access.example:8045";
                       tag = "check";
                     }).passthru.stream.drvPath;
               }

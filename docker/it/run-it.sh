@@ -3,9 +3,13 @@
 #
 #  1. Builds the overlay image (docker/build-overlay.sh) tagged artifactory-oss-fork:7.161.26-dev.
 #  2. Phase "stock": starts the unmodified stock image on a fresh volume, creates a Generic repository and stores
-#     a file in it, then stops. This is the "existing data" of B2.
+#     a file in it, then stops. This is the "existing data" of B2. The stock image's own Access sets its admin
+#     password from var/etc/access/bootstrap.creds, which the script seeds with a random password first, so the
+#     stock default credential is never used.
 #  3. Phase "fork": seeds plugins/examples/simple-index.groovy into the volume and starts the overlay image on the
-#     same volume, then runs the assertions below against 127.0.0.1 only.
+#     same volume. Its embedded access starts unclaimed (stock Access users are not migrated), so the script claims
+#     it with the setup token it wrote (docker/it/initial-admin.sh: a new random administrator password), then runs
+#     the assertions below against 127.0.0.1 only.
 #
 # Containers are named rt-fork-it*, the volume rt-fork-it-var; leftovers with exactly those names are removed
 # first, and everything is removed again on exit. Both images use their default embedded database (Derby); since
@@ -16,13 +20,12 @@
 # configuration API, PATCH /api/system/configuration, whose localRepositories entries accept
 # `pluginPackageType` for Generic repositories. The PUT attempt is reported as INFO for the record.
 #
-# Usage: docker/it/run-it.sh            (env: SKIP_BUILD=1 reuses an existing image; LOG_DIR keeps container logs)
-# Requires ADMIN_USER and ADMIN_PASSWORD in the environment: no default administrator credential is shipped.
+# Usage: docker/it/run-it.sh            (env: SKIP_BUILD=1 reuses an existing image; IMAGE; LOG_DIR keeps container logs)
 # Exit status: 0 when every assertion passes, 1 otherwise.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-IMAGE=artifactory-oss-fork:7.161.26-dev
+IMAGE="${IMAGE:-artifactory-oss-fork:7.161.26-dev}"
 STOCK_IMAGE=releases-docker.jfrog.io/jfrog/artifactory-oss:7.161.26
 NAME=rt-fork-it
 STOCK_NAME=rt-fork-it-stock
@@ -30,10 +33,11 @@ VOLUME=rt-fork-it-var
 VAR=/var/opt/jfrog/artifactory
 PLUGINS_DIR=$VAR/etc/artifactory/plugins
 PLUGIN_SRC="$ROOT/plugins/examples/simple-index.groovy"
-# Administrator credentials come from the environment; no default is shipped (design IA1).
-: "${ADMIN_USER:?set ADMIN_USER (and ADMIN_PASSWORD) to the administrator credentials of the server under test}"
-: "${ADMIN_PASSWORD:?set ADMIN_PASSWORD to the password of ADMIN_USER; there is no default password}"
-ADMIN="$ADMIN_USER:$ADMIN_PASSWORD"
+# No default administrator credential is used (design IA1): ADMIN is the stock phase's bootstrap.creds password,
+# then the fork phase's claimed password (set by ia_claim_server).
+# shellcheck source=initial-admin.sh
+. "$ROOT/docker/it/initial-admin.sh"
+ADMIN=""
 STARTUP_TIMEOUT=600
 INDEX_TIMEOUT=90
 LOG_DIR="${LOG_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/rt-fork-it-logs.XXXXXX")}"
@@ -94,10 +98,12 @@ wait_for_ping() { # wait_for_ping <container>; bounded by STARTUP_TIMEOUT
     say "$container did not answer ping within ${STARTUP_TIMEOUT}s"; return 1
 }
 
-start_container() { # start_container <name> <image>
+# start_container <name> <image> <container port>: the stock image is reached through its router (8082); the fork
+# runs access embedded and does not register with the stock router, so it is reached on Tomcat's 8081 directly.
+start_container() {
     docker run -d --name "$1" \
         -e JF_SHARED_DATABASE_ALLOWNONPOSTGRESQL=true \
-        -p "127.0.0.1:$PORT:8082" \
+        -p "127.0.0.1:$PORT:$3" \
         -v "$VOLUME:$VAR" \
         "$2" >/dev/null
 }
@@ -144,7 +150,12 @@ docker volume create "$VOLUME" >/dev/null
 
 # --- Phase "stock": existing data written by the unmodified image ---------------------------------------------------
 say "phase stock: starting $STOCK_IMAGE"
-start_container "$STOCK_NAME" "$STOCK_IMAGE"
+STOCK_PASSWORD="$(ia_password)"
+printf 'admin@*=%s\n' "$STOCK_PASSWORD" | docker run --rm -i --name rt-fork-it-seed --network none \
+    -v "$VOLUME:$VAR" --entrypoint sh "$STOCK_IMAGE" \
+    -c "mkdir -p '$VAR/etc/access' && (umask 077 && cat > '$VAR/etc/access/bootstrap.creds')"
+ADMIN="admin:$STOCK_PASSWORD"
+start_container "$STOCK_NAME" "$STOCK_IMAGE" 8082
 if wait_for_ping "$STOCK_NAME"; then
     head -c 4096 /dev/urandom > "$WORK/stock.bin"
     yaml_create_local stock-local
@@ -163,7 +174,7 @@ docker rm -f "$STOCK_NAME" >/dev/null 2>&1 || true
 docker run --rm -i --name rt-fork-it-seed --network none -v "$VOLUME:$VAR" --entrypoint sh "$IMAGE" \
     -c "mkdir -p '$PLUGINS_DIR' && cat > '$PLUGINS_DIR/simple-index.groovy'" < "$PLUGIN_SRC"
 say "phase fork: starting $IMAGE"
-start_container "$NAME" "$IMAGE"
+start_container "$NAME" "$IMAGE" 8081
 if wait_for_ping "$NAME"; then
     DETAIL="ping OK on existing data"; check "B2.fork-starts-on-existing-data" true
 else
@@ -171,6 +182,12 @@ else
     docker logs "$NAME" > "$LOG_DIR/$NAME.log" 2>&1
     exit 1
 fi
+ADMIN=""
+ia_claim_server "$NAME" "$BASE" || { DETAIL="see $LOG_DIR/$NAME.log"; check "setup.initial-admin-claim" false; exit 1; }
+http -u "admin:$STOCK_PASSWORD" "$BASE/api/system/version"; old="$CODE"
+http -u "$ADMIN" "$BASE/api/system/version"
+DETAIL="claimed admin $CODE, stock phase password $old"
+check "IA3.fork-claimed-on-existing-data" test "$CODE" = 200 -a "$old" = 401
 
 http -u "$ADMIN" "$BASE/stock-local/data/stock.bin"
 cmp -s "$WORK/body" "$WORK/stock.bin"; same=$?

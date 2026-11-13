@@ -1,0 +1,13 @@
+apiVersion: v2
+name: containercontainer
+description: >-
+  ContainerContainer, a fork of Artifactory OSS 7.161.26 with embedded access, as a single-node StatefulSet.
+  No default administrator credential: the server is claimed with its one-time setup token.
+type: application
+version: 0.1.0
+appVersion: "7.161.26-cc.1"
+home: https://github.com/jvishnefske/ContainerContainer
+sources:
+  - https://github.com/jvishnefske/ContainerContainer
+annotations:
+  licenses: AGPL-3.0-or-later

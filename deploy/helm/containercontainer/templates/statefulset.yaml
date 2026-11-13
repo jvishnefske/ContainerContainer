@@ -1,0 +1,163 @@
+{{- if ne (int .Values.replicas) 1 }}
+{{- fail "replicas must be 1: embedded access is single node" }}
+{{- end }}
+{{- $javaOptions := include "containercontainer.javaOptions" . }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "containercontainer.fullname" . }}
+  labels:
+    {{- include "containercontainer.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: {{ include "containercontainer.fullname" . }}
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "containercontainer.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "containercontainer.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: artifactory
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          {{- if or .Values.initialAdmin.tokenSecret.name .Values.initialAdmin.temporaryPasswordSecret.name .Values.masterKeySecret.name $javaOptions .Values.extraEnv }}
+          env:
+            {{- if .Values.initialAdmin.tokenSecret.name }}
+            - name: INITIAL_ADMIN_TOKEN_FILE
+              value: /run/secrets/initial-admin/token
+            {{- end }}
+            {{- if .Values.initialAdmin.temporaryPasswordSecret.name }}
+            - name: INITIAL_ADMIN_PASSWORD_FILE
+              value: /run/secrets/initial-admin-password/password
+            {{- end }}
+            {{- with .Values.masterKeySecret }}
+            {{- if .name }}
+            - name: JF_SHARED_SECURITY_MASTERKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name }}
+                  key: {{ .key }}
+            {{- end }}
+            {{- end }}
+            {{- with $javaOptions }}
+            - name: JAVA_OPTIONS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          volumeMounts:
+            - name: var
+              mountPath: /var/opt/jfrog/artifactory
+            {{- if .Values.initialAdmin.tokenSecret.name }}
+            - name: initial-admin-token
+              mountPath: /run/secrets/initial-admin
+              readOnly: true
+            {{- end }}
+            {{- if .Values.initialAdmin.temporaryPasswordSecret.name }}
+            - name: initial-admin-password
+              mountPath: /run/secrets/initial-admin-password
+              readOnly: true
+            {{- end }}
+          # Ping and the probes answer before the server is claimed; every other endpoint answers 503 until then.
+          startupProbe:
+            httpGet:
+              path: /artifactory/api/system/ping
+              port: http
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: /artifactory/api/system/ping
+              port: http
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /artifactory/api/v1/system/readiness
+              port: http
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if or .Values.initialAdmin.tokenSecret.name .Values.initialAdmin.temporaryPasswordSecret.name }}
+      volumes:
+        {{- with .Values.initialAdmin.tokenSecret }}
+        {{- if .name }}
+        - name: initial-admin-token
+          secret:
+            secretName: {{ .name }}
+            defaultMode: 0440
+            items:
+              - key: {{ .key }}
+                path: token
+        {{- end }}
+        {{- end }}
+        {{- with .Values.initialAdmin.temporaryPasswordSecret }}
+        {{- if .name }}
+        - name: initial-admin-password
+          secret:
+            secretName: {{ .name }}
+            defaultMode: 0440
+            items:
+              - key: {{ .key }}
+                path: password
+        {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: var
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}

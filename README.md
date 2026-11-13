@@ -38,7 +38,7 @@ target). Its outputs, for `x86_64-linux` and `aarch64-linux`:
   plugins (the OCI registry and echo-realm), which `docker/it/run-min-it.sh` tests.
 - `packages.release-oci`: the image tar, `containercontainer-<version>.oci.json` (its sha256, size in bytes,
   manifest digest and layer sizes) and a `SHA256SUMS` line for the tar.
-- `lib.mkImage { pkgs, plugins ? [ ], extraConfig ? { }, accessUrl ? ..., accessGrpc ? ..., tag ? version }`:
+- `lib.mkImage { pkgs, plugins ? [ ], extraConfig ? { }, tag ? version }`:
   builds that image for `pkgs`' system, with the given plugin files built in.
 - `packages.release` (the default package): `containercontainer-<version>-jars.tar.gz` and `SHA256SUMS`. The
   tarball holds the jars and manifest, `LICENSE`, `plugins/wasm-abi/abi-v1.schema.json` and a `NOTICE` naming the
@@ -50,8 +50,9 @@ target). Its outputs, for `x86_64-linux` and `aarch64-linux`:
   tested with.
 - `checks`: the jar set against the stock listing, deterministic packing of the release, the `wasm-hello` module
   answering ABI v1 envelopes under wasmtime with schema-valid replies, the imports check rejecting a module, the
-  structure of the minimal image with and without plugins, its Java runtime's modules against `jdeps`, and
-  `mkImage`'s plugin rules.
+  structure of the minimal image with and without plugins (including that it carries no Access configuration and
+  no default administrator credential, and that an image with `ACCESS_URL` set is rejected), its Java runtime's
+  modules against `jdeps`, `mkImage`'s plugin rules, and the Helm chart (`helm lint` and renders, see below).
 - `devShells.default`: JDK 25, Maven, Rust with `wasm32-wasip1`, wasm-tools, wasmtime and jq.
 
 The jars are built with nixpkgs' `maven.buildMavenPackage` in two steps. A fixed-output derivation runs the Maven
@@ -98,24 +99,21 @@ the UI also needs JFrog's closed frontend service), JFrog Access, the router, an
 observability, topology, jfconfig and jfbus services, along with every other file of JFrog's stock image. It also
 leaves out a few jars the server does not load unless configured for them (the Oracle JDBC driver, the AWS RDS
 helpers, the Kubernetes client), annotation processors the WAR packages by accident, and native libraries for
-other platforms. Access is closed source and not redistributable, so the image needs an Access-compatible service:
-the launcher passes `ACCESS_URL` (default `http://localhost:8040/access`) and `ACCESS_GRPC` (default
-`localhost:8045`) to Artifactory, so a sidecar sharing the container's network namespace (a second container of the
-same pod, or `docker run --network container:<name>`) works without settings, and the join key that service expects
-goes in `JF_SHARED_SECURITY_JOINKEY` on first start. Until the separate replacement service exists,
-`docker/it/run-min-it.sh` stands in for it in tests with the Access webapp of JFrog's stock image, run as such a
-sidecar in a throwaway container (JFrog's Access binds its gRPC port to 127.0.0.1, so it cannot be a separate host);
-that stand-in is never part of any build or release.
+other platforms. JFrog Access is closed source and not redistributable; the image does not need it, because the
+fork runs access embedded in the webapp (see "Embedded access and the first administrator" below). The image carries
+no Access address, join key or default credential, and needs no other service.
 
 To run it, load the archive (`docker load -i containercontainer-<version>.oci.tar`, or `podman load -i ...`; with
-skopeo it is `oci-archive:containercontainer-<version>.oci.tar`), then start it with a volume and the Access
-service's address if it is not a localhost sidecar, for example `docker run -d -p 8081:8081 -v
-rt-var:/var/opt/jfrog/artifactory -e ACCESS_URL=http://access:8040/access -e ACCESS_GRPC=access:8045 -e
-JF_SHARED_SECURITY_JOINKEY=<key> containercontainer:<version>`. On first start the launcher writes `master.key`, `join.key` and a `system.yaml`
-with the router disabled and the embedded Derby database allowed; edit that file (or provide your own before the
-first start) to use PostgreSQL. `JAVA_OPTIONS` adds JVM options after the defaults (`-Xms512m -Xmx2g`). The layers
-are zstd-compressed (media type `application/vnd.oci.image.layer.v1.tar+zstd`), which needs Docker 23 or later,
-podman 4 or later, or a containerd 1.5 or later based runtime; older clients cannot unpack them.
+skopeo it is `oci-archive:containercontainer-<version>.oci.tar`), then start it with a volume, for example
+`docker run -d -p 127.0.0.1:8081:8081 -v rt-var:/var/opt/jfrog/artifactory containercontainer:<version>`, and claim
+it as described below. On first start the launcher writes `master.key` (from `JF_SHARED_SECURITY_MASTERKEY` when
+set, otherwise random) and a `system.yaml` with the router disabled and the embedded Derby database allowed; edit
+that file (or provide your own before the first start) to use PostgreSQL. The launcher passes the environment to
+Artifactory unchanged, so `INITIAL_ADMIN_TOKEN_FILE` and `INITIAL_ADMIN_PASSWORD_FILE` work as described below.
+`JAVA_OPTIONS` adds JVM options after the defaults (`-Xms512m -Xmx2g`), and is also how Artifactory system
+properties such as `-Dartifactory.security.externalAdminGroups=ops` are set. The layers are zstd-compressed (media
+type `application/vnd.oci.image.layer.v1.tar+zstd`), which needs Docker 23 or later, podman 4 or later, or a
+containerd 1.5 or later based runtime; older clients cannot unpack them.
 
 To build an image with plugins, call `lib.mkImage` from the flake input with the plugin files: Groovy plugins,
 WASM modules with their `.wasm.yaml` manifests, or directories such as `lib.buildWasmPlugin` outputs, whose
@@ -125,7 +123,7 @@ myWasmPlugin ]; }`. The plugins are installed read-only in the image's last laye
 `var/etc/artifactory/plugins` on every start, so a volume mounted over the var directory still gets the image's
 versions; plugins added to that directory by other means are left alone. A `.wasm` without its manifest, a file of
 another kind and duplicate names fail the build. `extraConfig` is merged into the OCI image configuration (its
-`Env` list is appended), and `accessUrl` and `accessGrpc` change the image's defaults for the two variables.
+`Env` list is appended).
 
 Layers are ordered so that what changes least comes first: base (busybox, glibc, CA certificates), Java runtime,
 Tomcat, third-party jars, the fork's jars, configuration and launcher, plugins, and a small last layer with
@@ -133,6 +131,79 @@ Tomcat, third-party jars, the fork's jars, configuration and launcher, plugins, 
 converted by `nix/image/to-oci.py` into an OCI layout whose layers are compressed with `zstd -19`; the archive also
 carries a `docker save` style `manifest.json`, so `docker load` works with or without the containerd image store.
 The creation time is the commit time and every step is deterministic, so a rebuild gives the same bytes.
+
+## Embedded access and the first administrator
+
+Users, groups, permission targets and access tokens are kept by an access implementation embedded in Artifactory
+(`artifactory.access.embedded.enabled`, on by default), in tables of Artifactory's own database. Only Apache Derby
+and PostgreSQL are supported in this mode, and only a single node. Access tokens are signed with a key that is
+stored encrypted with `var/etc/security/master.key`, so that file must persist with the var directory: a server
+that finds its signing key but not the master key that encrypted it refuses to start. Users and tokens of a stock
+JFrog Access installation are not migrated.
+
+There is no default administrator password. On first start the server writes a one-time setup token to
+`var/etc/security/initial-admin.token` (mode 0600; in the images that is
+`/var/opt/jfrog/artifactory/etc/security/initial-admin.token`), logs only that path, and answers every request with
+503 except ping (`/artifactory/api/system/ping`), the readiness and liveness probes (`/artifactory/api/v1/system/readiness`
+and `.../liveness`) and the claim endpoint. Whoever can read the token claims the server by sending
+`POST /artifactory/api/setup/initial-admin` with the JSON body `{"token": "...", "password": "..."}`: the password
+becomes the `admin` password (it must pass the password policy: at least 12 characters and not a common password),
+the token file is deleted, and the token never works again. Every refusal (wrong or expired token, weak password,
+already claimed) is the same 400, and repeated attempts are rate limited with 429. The token lives 24 hours by
+default (`artifactory.security.initialAdmin.tokenTtlHours`); a restart before the claim keeps a valid token and
+replaces an expired one (or one whose file was removed). For
+example, with docker, read the token with `docker exec <container> cat
+/var/opt/jfrog/artifactory/etc/security/initial-admin.token` and send the claim with curl to the published port.
+
+Two environment variables change the start:
+
+- `INITIAL_ADMIN_TOKEN_FILE` names a file holding the setup token to use instead of a generated one (at least 22
+  characters, at most 1 KiB), for deployments that create the token up front, such as a Kubernetes Secret.
+- `INITIAL_ADMIN_PASSWORD_FILE` names a file holding a temporary administrator password. The server then starts
+  already claimed with that password, marked must-change: until the administrator changes it, every request of that
+  account other than the password change is refused with 403, and it cannot create tokens or API keys. Use it only
+  where the claim flow cannot be run, and remove the file afterwards.
+
+`artifactory.security.externalAdminGroups` (an Artifactory system property, empty by default) lists groups of an
+external realm, such as LDAP or a plugin realm, whose members are made administrators; it applies only once the
+server is claimed. Embedded access seeds only the `admin` and `anonymous` users: unlike stock Access it creates no
+`readers` group and no `Anything` permission target, so grant read access explicitly.
+
+Setting `-Dartifactory.access.embedded.enabled=false` restores the stock behaviour of talking to an external JFrog
+Access server (with its join key and router). Artifactory logs a warning on start, and none of the above applies in
+that mode: there is no setup token, the server is not closed until claimed, and the administrator credential is
+whatever that Access server has. It exists for running on the stock image, not for the minimal image, which has no
+Access server.
+
+## Helm chart
+
+`deploy/helm/containercontainer` deploys the image as a single-replica StatefulSet with a Service on port 8081 and
+a persistent volume claim for `/var/opt/jfrog/artifactory` (database, filestore, logs and `master.key`). The pod runs
+as the image's non-root user (1030:1030, with `fsGroup` 1030 for the volume, no privilege escalation, all
+capabilities dropped). The startup and liveness probes use ping and the readiness probe uses
+`/api/v1/system/readiness`; all answer before the claim, so a fresh server becomes ready while still closed.
+
+`values.yaml` holds no password, token or key. Secrets you create yourself are referenced by name:
+`initialAdmin.tokenSecret` is mounted read-only at `/run/secrets/initial-admin/token` with `INITIAL_ADMIN_TOKEN_FILE`
+pointing at it; `initialAdmin.temporaryPasswordSecret` is mounted read-only at
+`/run/secrets/initial-admin-password/password` for `INITIAL_ADMIN_PASSWORD_FILE` (temporary, must be changed at
+first login); `masterKeySecret` supplies `JF_SHARED_SECURITY_MASTERKEY` for the first start. Without a token Secret,
+read the generated token with `kubectl exec` into the pod, as the chart's notes print. `security.externalAdminGroups`
+is passed as `-Dartifactory.security.externalAdminGroups` in `JAVA_OPTIONS`, and `javaOptions` appends further JVM
+options. For example: `helm install rt deploy/helm/containercontainer --set image.repository=<registry>/containercontainer
+--set initialAdmin.tokenSecret.name=rt-setup-token`, then claim through `kubectl port-forward`. The chart refuses
+`replicas` other than 1. The flake check `helm-chart` lints it and checks its renders.
+
+## Integration tests
+
+The scripts in `docker/it` start throwaway containers bound to 127.0.0.1 and claim each fresh server themselves
+(`docker/it/initial-admin.sh`): they read the setup token from the container, claim with a random password kept only
+in the script's shell and private work directory, and use that as the administrator. No administrator credential is
+passed in. `run-min-it.sh` tests the minimal image alone, including the closed server before the claim, the claim
+itself and persistence across a restart; `run-it.sh`, `run-oci-it.sh` and `run-wasm-it.sh` test the overlay image.
+`run-it.sh` sets the stock phase's admin password through stock Access's `var/etc/access/bootstrap.creds`. With
+embedded access the fork does not register with the stock image's router, so on the overlay image it is reached on
+Tomcat's port 8081 directly, not the router's 8082.
 
 The upstream README follows.
 

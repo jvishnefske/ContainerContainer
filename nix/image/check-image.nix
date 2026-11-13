@@ -1,8 +1,10 @@
 # checks.image-structure and checks.image-example-structure: run check-image.py against an image from
 # lib.mkImage. The image must have exactly the jar set of the fork's WAR (minus the removed jars), Tomcat, the
 # JDBC drivers and the JRE's jrt-fs.jar; ELF files only from the JRE and busybox closures (nixpkgs builds); none
-# of the JFrog services the stock image carries; the expected files; the layer order of nix/image.nix; and a
-# non-root user owning the var volume.
+# of the JFrog services the stock image carries; the expected files; the layer order of nix/image.nix; a non-root
+# user owning the var volume; and no Access configuration (no ACCESS_URL / ACCESS_GRPC, no access.creds or join.key,
+# no Access URL override or join key handling in the launcher) and no default administrator credential in the
+# image config, the launcher, the config layer, the plugins or the fork's own jars.
 {
   lib,
   runCommand,
@@ -86,7 +88,39 @@ let
       "jfrog-tomcat-lib"
       "access-server"
       "\\.war$"
+      "(^|/)access\\.creds$"
+      "(^|/)bootstrap\\.creds$"
+      "(^|/)join\\.key$"
     ];
+    noAccess = {
+      env = [
+        "ACCESS_URL"
+        "ACCESS_GRPC"
+        "JF_SHARED_SECURITY_JOINKEY"
+      ];
+      launcher = [
+        "${parts.entrypoint}"
+        "${parts.config}"
+      ];
+      launcherPatterns = [
+        "ACCESS_URL"
+        "ACCESS_GRPC"
+        "serverUrl\\.override"
+        "grpcUrl\\.override"
+        "(?i)join[._]?key"
+      ];
+      scan = [
+        "${parts.entrypoint}"
+        "${parts.config}"
+        "${parts.webapp.fork}"
+        "${parts.pluginsDir}"
+      ];
+      credentialPatterns = [
+        "admin:password"
+        "password=password"
+        "admin@\\*=password"
+      ];
+    };
     user = "1030:1030";
     uid = 1030;
     var = "/var/opt/jfrog/artifactory";

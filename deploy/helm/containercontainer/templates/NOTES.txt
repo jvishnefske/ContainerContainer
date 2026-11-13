@@ -1,0 +1,17 @@
+{{ include "containercontainer.fullname" . }} has no default administrator password and starts closed: until it is
+claimed, every endpoint except ping, the probes and the claim answers 503.
+{{- if .Values.initialAdmin.temporaryPasswordSecret.name }}
+
+It starts claimed with the TEMPORARY password from Secret {{ .Values.initialAdmin.temporaryPasswordSecret.name }}.
+Log in as admin and change that password first: nothing else is allowed until you do. Then delete the Secret.
+{{- else }}
+
+Claim it with the setup token
+{{- if .Values.initialAdmin.tokenSecret.name }} from Secret {{ .Values.initialAdmin.tokenSecret.name }}
+{{- else }} the server wrote on first start:
+  kubectl exec -n {{ .Release.Namespace }} {{ include "containercontainer.fullname" . }}-0 -- cat /var/opt/jfrog/artifactory/etc/security/initial-admin.token
+{{- end }}
+by sending POST /artifactory/api/setup/initial-admin with the JSON body {"token": "...", "password": "..."} to
+service {{ include "containercontainer.fullname" . }} port {{ .Values.service.port }} (for example through kubectl
+port-forward). The token works once, and the token file is deleted after the claim.
+{{- end }}

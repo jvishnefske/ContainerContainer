@@ -1,0 +1,109 @@
+# Values of the containercontainer chart. This file holds no password, token or key: every secret comes from a
+# Kubernetes Secret you create yourself and name here.
+
+image:
+  # The image built by the flake (packages.oci or lib.mkImage), pushed to a registry the cluster can pull from.
+  repository: containercontainer
+  # Empty: the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Single node only: embedded access does not support HA. Any other value fails the render.
+replicas: 1
+
+service:
+  type: ClusterIP
+  port: 8081
+  annotations: {}
+
+# The var volume (/var/opt/jfrog/artifactory): database (Derby by default), filestore, logs and
+# etc/security/master.key. The master key encrypts the embedded token signing key, so this volume must persist:
+# without the original master.key the server refuses to start on the old database.
+persistence:
+  size: 20Gi
+  # Empty: the cluster's default StorageClass.
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+
+initialAdmin:
+  # Optional Secret holding the one-time setup token (at least 22 characters, for example 32 random bytes in
+  # base64). It is mounted read-only at /run/secrets/initial-admin/token and passed as INITIAL_ADMIN_TOKEN_FILE.
+  # Without it the server writes a random token to /var/opt/jfrog/artifactory/etc/security/initial-admin.token on
+  # first start (read it with kubectl exec). Either way the server is claimed with
+  # POST /artifactory/api/setup/initial-admin {"token": ..., "password": ...}; until then every endpoint except
+  # ping, the probes and the claim answers 503.
+  tokenSecret:
+    name: ""
+    key: token
+  # Optional Secret holding a TEMPORARY administrator password, passed as INITIAL_ADMIN_PASSWORD_FILE (mounted
+  # read-only at /run/secrets/initial-admin-password/password). The server then starts claimed and the
+  # administrator MUST change this password at first login: until then that account can do nothing but change
+  # it. Use it only when the claim flow cannot be run, and delete the Secret afterwards.
+  temporaryPasswordSecret:
+    name: ""
+    key: password
+
+# Optional Secret with the master key (64 hex characters), passed as JF_SHARED_SECURITY_MASTERKEY. It is used only
+# when var/etc/security/master.key does not exist yet; without it a random key is written on first start.
+masterKeySecret:
+  name: ""
+  key: master.key
+
+security:
+  # Groups of an external realm (LDAP, a WASM realm plugin) whose members are administrators; applied only once
+  # the server is claimed. Passed as -Dartifactory.security.externalAdminGroups in JAVA_OPTIONS. Empty: none.
+  externalAdminGroups: []
+
+# Extra JVM options, appended last (for example -Xmx4g, or other -Dartifactory.* system properties).
+javaOptions: ""
+
+# Extra environment variables of the container (no secret values here: use valueFrom.secretKeyRef).
+extraEnv: []
+
+# The image runs as artifactory (1030:1030); fsGroup gives that group the var volume.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1030
+  runAsGroup: 1030
+  fsGroup: 1030
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Startup takes minutes (database schema, plugins); the startup probe covers it before liveness starts.
+probes:
+  startup:
+    periodSeconds: 10
+    failureThreshold: 90
+  liveness:
+    periodSeconds: 20
+    timeoutSeconds: 10
+    failureThreshold: 6
+  readiness:
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 2Gi
+  limits:
+    memory: 3Gi
+
+terminationGracePeriodSeconds: 120
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

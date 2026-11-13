@@ -7,7 +7,9 @@
 #  3. Creates two local Generic repositories of plugin type oci-registry (oci-local, and oci-other for the isolation
 #     checks) through the YAML configuration API, and three users through the UI REST API (the public security API
 #     is a Pro feature in OSS): ociadmin (administrator), deployer (read and deploy on oci-local, no delete) and
-#     reader (read on oci-local only), with permission targets created the same way.
+#     reader (read on oci-local only), with permission targets created the same way. A password an administrator
+#     sets must be changed by its user before anything else works, so each user is created with a random temporary
+#     password and then changes it to its test password (POST /api/security/users/authorization/changePassword).
 #  4. Asserts, printing one PASS/FAIL line each: docker push/pull (by tag and digest, same image id), podman
 #     push/pull, podman multi-platform pushes as an OCI index and as a Docker manifest list, curl monolithic and
 #     chunked uploads, manifests, tag pagination, deletes, permissions, path traversal and cross-repository mount
@@ -21,8 +23,11 @@
 # Containers are named rt-oci-it*, the volume rt-oci-it-var; leftovers with those names are removed first, and
 # everything (including the docker images tagged 127.0.0.1:<port>/...) is removed again on exit.
 #
+# The server starts closed (embedded access, design IA1-IA8): after it answers ping the script claims it with the
+# setup token it wrote (docker/it/initial-admin.sh: a random administrator password kept only in this shell) and
+# creates the test users as that administrator.
+#
 # Usage: docker/it/run-oci-it.sh   (env: SKIP_BUILD=1, IMAGE, LOG_DIR keeps container logs and the conformance report)
-# Requires ADMIN_USER and ADMIN_PASSWORD in the environment: no default administrator credential is shipped.
 # Exit status: 0 when every assertion passes, 1 otherwise.
 set -uo pipefail
 
@@ -36,14 +41,15 @@ VOLUME=rt-oci-it-var
 VAR=/var/opt/jfrog/artifactory
 PLUGINS_DIR=$VAR/etc/artifactory/plugins
 PLUGIN_SRC="$ROOT/plugins/oci/oci-registry.groovy"
-# Administrator credentials come from the environment; no default is shipped (design IA1).
-: "${ADMIN_USER:?set ADMIN_USER (and ADMIN_PASSWORD) to the administrator credentials of the server under test}"
-: "${ADMIN_PASSWORD:?set ADMIN_PASSWORD to the password of ADMIN_USER; there is no default password}"
-ADMIN="$ADMIN_USER:$ADMIN_PASSWORD"
+# No default administrator credential exists (design IA1): ia_claim_server sets ADMIN after claiming the server.
+# shellcheck source=initial-admin.sh
+. "$ROOT/docker/it/initial-admin.sh"
+ADMIN=""
 OCTET="Content-Type: application/octet-stream"
 OCIADMIN_USER=ociadmin OCIADMIN_PASS='Admin-Passw0rd!'
-DEPLOYER_USER=deployer DEPLOYER_PASS='Deployer-Passw0rd!'
-READER_USER=reader READER_PASS='Reader-Passw0rd!'
+# Test passwords must pass the password policy, which refuses one that contains the username.
+DEPLOYER_USER=deployer DEPLOYER_PASS='Upload-Passw0rd!'
+READER_USER=reader READER_PASS='Viewer-Passw0rd!'
 STARTUP_TIMEOUT=600
 LOG_DIR="${LOG_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/rt-oci-it-logs.XXXXXX")}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/rt-oci-it-work.XXXXXX")"
@@ -135,7 +141,7 @@ push_blob() { # push_blob <name> <file>: monolithic POST as ociadmin; sets CODE
 
 # --- Setup --------------------------------------------------------------------------------------------------------
 [ -f "$PLUGIN_SRC" ] || { say "missing $PLUGIN_SRC"; exit 1; }
-for tool in docker podman curl jq python3 ss; do
+for tool in docker podman curl jq python3 ss openssl; do
     command -v "$tool" >/dev/null || { say "missing tool: $tool"; exit 1; }
 done
 
@@ -165,9 +171,10 @@ say "stock image $STOCK_DIGEST; fork image $FORK_ID"
 docker volume create "$VOLUME" >/dev/null
 docker run --rm -i --name rt-oci-it-seed --network none -v "$VOLUME:$VAR" --entrypoint sh "$IMAGE" \
     -c "mkdir -p '$PLUGINS_DIR' && cat > '$PLUGINS_DIR/oci-registry.groovy'" < "$PLUGIN_SRC"
-docker run -d --name "$NAME" -e JF_SHARED_DATABASE_ALLOWNONPOSTGRESQL=true -p "127.0.0.1:$PORT:8082" \
+docker run -d --name "$NAME" -e JF_SHARED_DATABASE_ALLOWNONPOSTGRESQL=true -p "127.0.0.1:$PORT:8081" \
     -v "$VOLUME:$VAR" "$IMAGE" >/dev/null
 wait_for_ping || { DETAIL="see $LOG_DIR/$NAME.log"; check "setup.artifactory-starts" false; exit 1; }
+ia_claim_server "$NAME" "$BASE" || { DETAIL="see $LOG_DIR/$NAME.log"; check "setup.initial-admin-claim" false; exit 1; }
 
 http -u "$ADMIN" "$BASE/api/plugins"
 DETAIL="GET /api/plugins $CODE"
@@ -185,8 +192,14 @@ check "setup.repositories-created" test "$CODE" = 200
 created_users=0
 for u in "$OCIADMIN_USER:$OCIADMIN_PASS:true" "$DEPLOYER_USER:$DEPLOYER_PASS:false" "$READER_USER:$READER_PASS:false"; do
     IFS=: read -r user pass isadmin <<< "$u"
-    ui_post users "{\"name\":\"$user\",\"password\":\"$pass\",\"email\":\"$user@example.invalid\",\"admin\":$isadmin}"
-    [ "$CODE" = 201 ] && created_users=$((created_users + 1))
+    temp="$(ia_password)"
+    ui_post users "{\"name\":\"$user\",\"password\":\"$temp\",\"email\":\"$user@example.invalid\",\"admin\":$isadmin}"
+    [ "$CODE" = 201 ] || continue
+    jq -n --arg u "$user" --arg o "$temp" --arg p "$pass" \
+        '{userName: $u, oldPassword: $o, newPassword1: $p, newPassword2: $p}' > "$WORK/change.json"
+    http -u "$user:$temp" -X POST -H 'Content-Type: application/json' --data-binary "@$WORK/change.json" \
+        "$BASE/api/security/users/authorization/changePassword"
+    [ "$CODE" = 200 ] && created_users=$((created_users + 1))
 done
 permission() { # permission <name> <user> <actions json array> <repo>
     ui_post permissiontargets "{\"name\":\"$1\",\"repoPermission\":{\"repoKeys\":[\"$4\"],\"includePatterns\":[\"**\"],

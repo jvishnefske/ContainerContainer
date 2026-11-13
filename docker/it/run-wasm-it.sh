@@ -9,7 +9,11 @@
 #     into the JVM trust store; the WASM host has no switch to skip TLS verification.
 #  3. Seeds the committed build of the example module (backend/core/src/test/resources/wasm/echo-realm.wasm) and a
 #     manifest allowing only stub.wasm-it.test:8443 into a fresh volume, starts Artifactory on the private network
-#     published on 127.0.0.1 only, and creates a generic repository as the built-in admin.
+#     published on 127.0.0.1 only, claims the server with the setup token it wrote (docker/it/initial-admin.sh: a
+#     random administrator password kept only in this shell), and creates a generic repository as admin.
+#     Embedded access seeds no readers group or Anything permission target (stock Access does) and OSS has no API
+#     to create groups, so the realm user gets read on that repository from a permission target created here, and
+#     the JIT group check compares against the groups that actually exist.
 #  4. Asserts, one PASS/FAIL line each: the plugin is loaded; a Bearer token (unsigned, JWT-shaped, issuer echo-it;
 #     the example is insecure by design) logs in through the WASM realm and runs the echoMint execution as that user;
 #     the just-in-time user lives in realm plugin:echo with only the existing non-admin group; the minted token is a
@@ -26,7 +30,6 @@
 # names are removed first, and everything is removed again on exit.
 #
 # Usage: docker/it/run-wasm-it.sh   (env: SKIP_BUILD=1, IMAGE, LOG_DIR keeps container logs, TMPDIR)
-# Requires ADMIN_USER and ADMIN_PASSWORD in the environment: no default administrator credential is shipped.
 # Exit status: 0 when every assertion passes, 1 otherwise.
 set -uo pipefail
 
@@ -43,10 +46,10 @@ TRUSTED_DIR=$VAR/etc/security/keys/trusted
 MODULE="$ROOT/backend/core/src/test/resources/wasm/echo-realm.wasm"
 STUB_HOST=stub.wasm-it.test
 ISSUER=echo-it
-# Administrator credentials come from the environment; no default is shipped (design IA1).
-: "${ADMIN_USER:?set ADMIN_USER (and ADMIN_PASSWORD) to the administrator credentials of the server under test}"
-: "${ADMIN_PASSWORD:?set ADMIN_PASSWORD to the password of ADMIN_USER; there is no default password}"
-ADMIN="$ADMIN_USER:$ADMIN_PASSWORD"
+# No default administrator credential exists (design IA1): ia_claim_server sets ADMIN after claiming the server.
+# shellcheck source=initial-admin.sh
+. "$ROOT/docker/it/initial-admin.sh"
+ADMIN=""
 MINT_SECONDS=300
 STARTUP_TIMEOUT=600
 LOG_DIR="${LOG_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/rt-wasm-it-logs.XXXXXX")}"
@@ -192,8 +195,9 @@ seed "$PLUGINS_DIR/echo-realm.wasm" < "$MODULE"
 seed "$PLUGINS_DIR/echo-realm.wasm.yaml" < "$WORK/echo-realm.wasm.yaml"
 seed "$TRUSTED_DIR/rt-wasm-it-ca.pem" < "$WORK/stub/ca.pem"
 docker run -d --name "$NAME" --network "$NET" -e JF_SHARED_DATABASE_ALLOWNONPOSTGRESQL=true \
-    -p "127.0.0.1:$PORT:8082" -v "$VOLUME:$VAR" "$IMAGE" >/dev/null
+    -p "127.0.0.1:$PORT:8081" -v "$VOLUME:$VAR" "$IMAGE" >/dev/null
 wait_for_ping || { DETAIL="see $LOG_DIR/$NAME.log"; check "setup.artifactory-starts" false; exit 1; }
+ia_claim_server "$NAME" "$BASE" || { DETAIL="see $LOG_DIR/$NAME.log"; check "setup.initial-admin-claim" false; exit 1; }
 
 as_admin "$BASE/api/plugins"
 DETAIL="GET /api/plugins $CODE: $(jq -c '.plugins["echo-realm"] // empty' "$WORK/body" 2>/dev/null)"
@@ -214,17 +218,24 @@ check "W2.bearer-login-runs-the-execution-as-the-realm-user" eval '[ "$CODE" = 2
 
 as_admin -H 'X-Requested-With: XMLHttpRequest' "$BASE/ui/users/carol"
 cp "$WORK/body" "$WORK/carol.json"
+user_code="$CODE"
 JIT_GROUPS="$(jq -c '[(.groups // [])[] | if type == "object" then .groupName // .name else . end] | sort' "$WORK/carol.json" 2>/dev/null)"
-DETAIL="GET $CODE: realm $(jq -r '.realm // empty' "$WORK/carol.json"), groups $JIT_GROUPS, admin $(jq -r '.admin' "$WORK/carol.json")"
-check "P3.jit-user-in-plugin-realm-with-only-existing-non-admin-groups" eval '[ "$CODE" = 200 ] && [ "$JIT_GROUPS" = "[\"readers\"]" ] && [ "$(jq -r .admin "$WORK/carol.json")" = false ] && [ "$(jq -r .realm "$WORK/carol.json")" = "plugin:echo" ]'
+# The manifest assigns [readers, wasm-it-ghost]; only the groups that exist may be given (wasm-it-ghost never does).
+as_admin -H 'X-Requested-With: XMLHttpRequest' "$BASE/ui/users/groups"
+EXPECTED_GROUPS="$(jq -c '[.[] | if type == "object" then .groupName // .name else . end | select(. == "readers" or . == "wasm-it-ghost")] | sort' "$WORK/body" 2>/dev/null)"
+DETAIL="GET $user_code: realm $(jq -r '.realm // empty' "$WORK/carol.json"), groups $JIT_GROUPS (existing of the manifest's: $EXPECTED_GROUPS), admin $(jq -r '.admin' "$WORK/carol.json")"
+check "P3.jit-user-in-plugin-realm-with-only-existing-non-admin-groups" eval '[ "$user_code" = 200 ] && [ -n "$EXPECTED_GROUPS" ] && [ "$JIT_GROUPS" = "$EXPECTED_GROUPS" ] && [ "$(jq -r .admin "$WORK/carol.json")" = false ] && [ "$(jq -r .realm "$WORK/carol.json")" = "plugin:echo" ]'
 
 AT_CLAIMS="$(claims_b64 "$ACCESS_TOKEN")"
 LIFETIME=$(( $(jq -r '.exp // 0' <<< "$AT_CLAIMS" 2>/dev/null) - $(jq -r '.iat // 0' <<< "$AT_CLAIMS" 2>/dev/null) ))
 DETAIL="scope $(jq -r '.scp // empty' <<< "$AT_CLAIMS" 2>/dev/null), lifetime ${LIFETIME}s, expires_in $EXPIRES_IN"
 check "W3.mint-effect-gives-a-user-scoped-token-within-the-requested-lifetime" eval '[ -n "$ACCESS_TOKEN" ] && [ "$(jq -r .scp <<< "$AT_CLAIMS")" = "applied-permissions/user" ] && [ "$EXPIRES_IN" -gt 0 ] && [ "$EXPIRES_IN" -le "$MINT_SECONDS" ] && [ "$LIFETIME" -le "$MINT_SECONDS" ]'
+as_admin -X POST -H 'Content-Type: application/json' -H 'X-Requested-With: XMLHttpRequest' \
+    -d '{"name":"wasm-it-carol","repoPermission":{"repoKeys":["wasm-generic"],"includePatterns":["**"],"excludePatterns":[],"userPermissionActions":[{"principal":"carol","actions":["read"]}],"groupPermissionActions":[]}}' \
+    "$BASE/ui/permissiontargets"; perm="$CODE"
 bearer "$ACCESS_TOKEN" "$BASE/api/storage/wasm-generic"
-DETAIL="GET with the minted token $CODE"
-check "W3.minted-token-works" test "$CODE" = 200
+DETAIL="read permission for carol $perm, GET with the minted token $CODE"
+check "W3.minted-token-works" test "$perm" = 201 -a "$CODE" = 200
 
 before="$(docker logs "$STUB" 2>&1 | grep -c 'GET /allow')"
 mint_as fetch:dave

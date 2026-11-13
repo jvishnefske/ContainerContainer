@@ -11,6 +11,13 @@
 #   forbidden     regexes (search) no path in the image may match (JFrog services the stock image has)
 #   user, uid, var
 #                 the image config's User, and the directory (the volume) that must be owned by uid
+#   noAccess      the "no Access configuration, no default credential" rules (embedded access, design IA1):
+#                   env          variable names the image config's Env must not set (ACCESS_URL, ACCESS_GRPC, ...)
+#                   launcher     store path prefixes whose files (the launcher, the config layer) must not contain
+#                                any of launcherPatterns (the Access URL overrides, join key handling)
+#                   scan         store path prefixes whose files, and the entries of their jars, must not contain
+#                                any of credentialPatterns (default administrator credentials)
+#                 The image config itself (Env, Labels, Entrypoint, Cmd) must not contain credentialPatterns either.
 #
 # Also checks the archive itself: oci-layout and index.json, every blob's sha256 matches its name, every layer is
 # application/vnd.oci.image.layer.v1.tar+zstd, the config's diff_ids are the sha256 of the uncompressed layers, and
@@ -22,6 +29,7 @@ import re
 import subprocess
 import sys
 import tarfile
+import zipfile
 
 ZSTD_LAYER = "application/vnd.oci.image.layer.v1.tar+zstd"
 
@@ -55,6 +63,8 @@ def main(archive, expect_file):
         fail("manifest.json names other layers")
 
     paths = {}  # path -> TarInfo (last layer wins)
+    contents = {}  # path -> bytes, for regular files under the noAccess scan and launcher prefixes
+    scanned = tuple(p + "/" for p in expect["noAccess"]["scan"] + expect["noAccess"]["launcher"])
     elf = []
     if len(manifest["layers"]) != len(expect["layers"]):
         fail(f"{len(manifest['layers'])} layers, expected {len(expect['layers'])}")
@@ -75,6 +85,8 @@ def main(archive, expect_file):
                     stores.add(parts[3])
                 if m.isfile() and m.size >= 4 and lt.extractfile(m).read(4) == b"\x7fELF":
                     elf.append(p)
+                if m.isfile() and p.startswith(scanned):
+                    contents[p] = lt.extractfile(m).read()
         if want == "customisation":
             if stores:
                 fail(f"layer {i} (customisation) holds store paths {sorted(stores)}")
@@ -105,7 +117,39 @@ def main(archive, expect_file):
         fail(f"{expect['var']} is not a directory owned by {expect['uid']}")
     if expect["var"] not in config["config"].get("Volumes", {}):
         fail(f"{expect['var']} is not a volume")
+    check_no_access(expect["noAccess"], config["config"], contents)
     print(f"{len(paths)} paths, {len(jars)} jars, {len(elf)} ELF files, user {expect['user']}: ok")
+
+
+def check_no_access(rules, image_config, contents):
+    """No Access endpoint, join key or default administrator credential anywhere in the image's config or files."""
+    env = {e.split("=", 1)[0] for e in image_config.get("Env", [])}
+    bad_env = sorted(env & set(rules["env"]))
+    if bad_env:
+        fail(f"image config sets {bad_env}")
+    credentials = [re.compile(r.encode()) for r in rules["credentialPatterns"]]
+    launcher = [re.compile(r.encode()) for r in rules["launcherPatterns"]]
+    config_text = json.dumps({k: image_config.get(k) for k in ("Env", "Labels", "Entrypoint", "Cmd")}).encode()
+    for r in credentials:
+        if r.search(config_text):
+            fail(f"image config contains {r.pattern.decode()}")
+    launcher_prefixes = tuple(p + "/" for p in rules["launcher"])
+    scanned = 0
+    for path, data in contents.items():
+        blobs = [(path, data)]
+        if path.endswith(".jar"):
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                blobs = [(f"{path}!{n}", z.read(n)) for n in z.namelist() if not n.endswith("/")]
+        for name, blob in blobs:
+            scanned += 1
+            for r in credentials:
+                if r.search(blob):
+                    fail(f"{name} contains the default credential pattern {r.pattern.decode()}")
+            if path.startswith(launcher_prefixes):
+                for r in launcher:
+                    if r.search(blob):
+                        fail(f"{name} contains Access configuration {r.pattern.decode()}")
+    print(f"no Access configuration: env clean, {scanned} files and jar entries free of default credentials: ok")
 
 
 if __name__ == "__main__":
