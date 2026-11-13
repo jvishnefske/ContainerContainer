@@ -124,6 +124,13 @@ public final class AdminBootstrapService {
     private final AtomicReference<ClaimRateLimit.State> rateState =
             new AtomicReference<>(ClaimRateLimit.State.empty());
     private volatile boolean claimed;
+    /**
+     * The bootstrap state as last loaded or written by this service, or {@code null} before a successful start.
+     * Claim attempts are classified against it, so a request that is going to be refused or rate limited costs no
+     * store read. Single node: only this service changes the state, and the claim itself still compares against
+     * the stored state before writing.
+     */
+    private volatile BootstrapState current;
 
     private AdminBootstrapService(Builder b) {
         this.port = Objects.requireNonNull(b.port, "port");
@@ -222,6 +229,7 @@ public final class AdminBootstrapService {
         }
         Optional<BootstrapState> stored = ok.value();
         if (BootstrapRules.isClaimed(stored)) {
+            current = stored.get();
             claimed = true;
             return EaOutcome.done();
         }
@@ -247,9 +255,9 @@ public final class AdminBootstrapService {
      */
     public ClaimResult claim(String token, String password, String clientIp, Instant now) {
         String client = clientIp == null || clientIp.isBlank() ? UNKNOWN_CLIENT : clientIp;
-        Optional<BootstrapState> loaded = claimed ? Optional.empty() : port.load().toOptional().flatMap(s -> s);
-        ClaimVerdict verdict = loaded.map(s -> BootstrapRules.classifyClaim(s, token, now))
-                .orElse(ClaimVerdict.ALREADY_CLAIMED);
+        BootstrapState known = claimed ? null : current;
+        ClaimVerdict verdict = known == null ? ClaimVerdict.ALREADY_CLAIMED
+                : BootstrapRules.classifyClaim(known, token, now);
         // The limits exist against guessing the token. A request that presents the valid, unexpired token (checked
         // in constant time) is not guessing, so it is never counted or limited: nobody who lacks the token can
         // lock the holder out by exhausting the global limit.
@@ -259,11 +267,11 @@ public final class AdminBootstrapService {
                 log.warn("Initial admin claim from {} rate limited: {}", client, decision);
                 return ClaimResult.RATE_LIMITED;
             }
-        }
-        if (claimed) {
-            log.warn("Initial admin claim from {} refused: {}", client, ClaimVerdict.ALREADY_CLAIMED);
+            log.warn("Initial admin claim from {} refused: {}", client, verdict);
             return ClaimResult.REFUSED;
         }
+        // Only a request presenting the valid token reaches the store.
+        Optional<BootstrapState> loaded = port.load().toOptional().flatMap(st -> st);
         if (loaded.isEmpty()) {
             log.warn("Initial admin claim from {} refused: no readable bootstrap state", client);
             return ClaimResult.REFUSED;
@@ -290,6 +298,7 @@ public final class AdminBootstrapService {
                     describe(stored));
             return ClaimResult.REFUSED;
         }
+        current = newState.get();
         claimed = true;
         if (state instanceof Unclaimed unclaimed && unclaimed.source() == Source.GENERATED) {
             deleteTokenFile();
@@ -319,6 +328,7 @@ public final class AdminBootstrapService {
         }
         return switch (decision) {
             case Keep keep -> {
+                current = keep.state();
                 if (keep.state() instanceof Claimed) {
                     claimed = true;
                 } else {
@@ -328,6 +338,7 @@ public final class AdminBootstrapService {
             }
             case Generate generate -> generate(prior, now, generate.reason());
             case UseSupplied use -> port.save(use.state(), prior).map(done -> {
+                current = use.state();
                 deleteStaleGeneratedFile(stored);
                 log.warn("Initial admin setup required: using the setup token supplied through {} (expires {})",
                         TOKEN_FILE_ENV, use.state().expiresAt());
@@ -364,6 +375,7 @@ public final class AdminBootstrapService {
             deleteQuietly(temp);
             return EaOutcome.refused("cannot move the setup token file to " + tokenFile() + ": " + e);
         }
+        current = okState.value();
         log.warn("Initial admin setup required: a new setup token was written to {} (reason {}, expires {})",
                 tokenFile(), reason == null ? "TOKEN_FILE_MISSING" : reason, okState.value().expiresAt());
         return EaOutcome.done();

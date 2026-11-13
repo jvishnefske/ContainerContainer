@@ -274,6 +274,19 @@ class AdminBootstrapServiceTest {
     }
 
     @Test
+    void refusedAndRateLimitedAttemptsDoNotReadTheStore() throws IOException {
+        AdminBootstrapService service = service(name -> null, new ClaimRateLimit(2, 3, Duration.ofMinutes(15), 16));
+        service.start(T0);
+        int loadsAfterStart = port.loads();
+        for (int i = 0; i < 4; i++) {
+            service.claim("wrong-token-wrong-token-wrong", GOOD_PASSWORD, CLIENT, T0);
+        }
+        assertEquals(loadsAfterStart, port.loads());
+        assertEquals(ClaimResult.CLAIMED, service.claim(generatedToken(), GOOD_PASSWORD, CLIENT, T0));
+        assertEquals(loadsAfterStart + 1, port.loads(), "only the valid token reaches the store");
+    }
+
+    @Test
     void conflictingClaimIsRefused() throws IOException {
         AdminBootstrapService first = service();
         first.start(T0);

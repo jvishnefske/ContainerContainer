@@ -28,6 +28,7 @@ public final class InMemoryBootstrapStatePort implements BootstrapStatePort {
     private String serialised;
     private String adminPasswordHash;
     private int saves;
+    private int loads;
 
     /** Creates an empty port: no state stored, no admin password. */
     public InMemoryBootstrapStatePort() {
@@ -47,6 +48,7 @@ public final class InMemoryBootstrapStatePort implements BootstrapStatePort {
 
     @Override
     public synchronized EaOutcome<Optional<BootstrapState>> load() {
+        loads++;
         if (serialised == null) {
             return EaOutcome.ok(Optional.empty());
         }
@@ -97,6 +99,15 @@ public final class InMemoryBootstrapStatePort implements BootstrapStatePort {
      *
      * @return the count
      */
+    /**
+     * Returns how many times {@link #load()} was called.
+     *
+     * @return the load count
+     */
+    public synchronized int loads() {
+        return loads;
+    }
+
     public synchronized int saves() {
         return saves;
     }
