@@ -72,7 +72,7 @@ section "Binary release and Nix".
       `nix build .#release --rebuild` reports identical output.
 - [x] N3. The flake builds a minimal from-scratch OCI image (no stock base image) from Nix-built parts, with a
       `plugins` argument, attached to releases as an additional asset.
-      As built: `lib.mkImage { pkgs, plugins, extraConfig, accessUrl, accessGrpc, tag }` (`nix/image.nix`) and
+      As built: `lib.mkImage { pkgs, plugins, extraConfig, tag }` (`nix/image.nix`) and
       `packages.oci` (no plugins): `dockerTools.streamLayeredImage` without `fromImage`, layered by an explicit
       pipeline (base, JRE, Tomcat, third-party jars, fork jars, config and launcher, plugins, customisation), then
       `nix/image/to-oci.py` writes an OCI layout with `zstd -19` layers
@@ -86,13 +86,16 @@ section "Binary release and Nix".
       loads it; `nix build .#oci --rebuild` reproduces it bit for bit (and the webapp, JRE, Tomcat and config
       inputs likewise); `checks.image-structure` and `checks.image-example-structure` (blob digests, diff_ids,
       media types, layer order) and `checks.image-plugin-rules` (a `.wasm` without manifest fails the build) pass;
-      `docker/it/run-min-it.sh` on `packages.oci-example` (the OCI registry and echo-realm plugins), 12 passed
-      0 failed: `N3.ping`, `N3.admin-login`, `N3.yaml-patch-creates-generic-repository`,
-      `N3.deploy-download-round-trip`, `N3.token-mint-and-bearer-use`, `N3.oci-registry-plugin-loaded`,
-      `N3.v2-401-anonymous-200-admin`, `N3.oci-push-pull-round-trip`, `N3.echo-realm-wasm-plugin-loaded`,
-      `N3.echo-realm-bearer-login-runs-execution`, `N6.runs-as-non-root`, `N6.no-web-ui`. Access is not in the image;
-      the test stands in for the planned replacement service with the Access webapp of the stock image, run as a
-      throwaway sidecar container (Access binds gRPC to 127.0.0.1). Publishing the asset waits for N5's first run.
+      `docker/it/run-min-it.sh` on `packages.oci-example` (the OCI registry and echo-realm plugins), the container
+      alone with access embedded (EA1): no Access service, sidecar, join key or second container. On 2026-11-13,
+      22 passed 0 failed, among them `N3.ping`, `IA1.N3.admin-login-after-claim-default-password-401`,
+      `N3.yaml-patch-creates-generic-repository`, `N3.deploy-download-round-trip`, `N3.token-mint-and-bearer-use`,
+      `N3.oci-registry-plugin-loaded`, `N3.v2-401-anonymous-200-admin`, `N3.oci-push-pull-round-trip`,
+      `N3.echo-realm-wasm-plugin-loaded`, `N3.echo-realm-bearer-login-runs-execution`,
+      `N6.N7.runs-as-non-root-without-access-config` and `N6.no-web-ui`; the administrator is the one created by
+      the claim (IA4), since the image has no default credential. An earlier run (2026-11-12, 12 passed) used the
+      stock image's Access webapp as a throwaway sidecar; embedded access replaced it. Publishing the asset waits
+      for N5's first run.
 - [x] N4. `lib.buildWasmPlugin` builds a Rust crate for `wasm32-wasip1` offline from its `Cargo.lock` and fails the
       build when the module imports anything outside `wasi_snapshot_preview1`.
       Evidence: `checks.wasm-hello` builds `nix/tests/wasm-hello` (imports: five `wasi_snapshot_preview1`
@@ -127,8 +130,26 @@ section "Binary release and Nix".
       owned by it; `checks.jre-modules` runs jdeps over all 457 jars and fails on a needed module the runtime lacks
       (excluded on purpose: `jdk.jdi`, only javassist's HotSwapper, and `jdk.incubator.vector`, Lucene's opt-in
       vector code); the runtime is 101 MB, has no reference to the JDK it came from (`disallowedReferences`) and
-      none to ALSA. Live: `N6.runs-as-non-root`, `N6.no-web-ui` and every N3 assertion above, with WASM running
-      in that runtime (W7).
+      none to ALSA. Live: `N6.N7.runs-as-non-root-without-access-config`, `N6.no-web-ui` and every N3 assertion above,
+      with WASM running in that runtime (W7).
+- [x] N7. The image carries no JFrog Access configuration and no default credential: its config sets no `ACCESS_*`
+      variable, the launcher passes no Access URL override or join key, and no file or jar entry the check scans
+      holds a default administrator credential. The image passes `INITIAL_ADMIN_TOKEN_FILE` and
+      `INITIAL_ADMIN_PASSWORD_FILE` through unchanged (IA2, IA5).
+      Evidence (2026-11-13): `checks.image-structure` and `checks.image-example-structure` print "no Access
+      configuration ... ok" (`nix/image/check-image.py`, `check_no_access`); `checks.image-no-access-rejects` builds
+      an image with `ACCESS_URL` set and requires the structure check to fail naming it; live
+      `N6.N7.runs-as-non-root-without-access-config` (no `ACCESS_*` variable in the loaded image's config).
+- [x] N8. A Helm chart (`deploy/helm/containercontainer`) deploys the image as one replica (EA6) with a persistent
+      var volume, probes on ping and readiness, and no password, token or key in its values: the setup token
+      (`INITIAL_ADMIN_TOKEN_FILE`) and the optional temporary administrator password (`INITIAL_ADMIN_PASSWORD_FILE`,
+      IA5) come only from operator Secrets mounted read-only, the master key from a Secret reference, and
+      `artifactory.security.externalAdminGroups` (IA7) from a value.
+      Evidence: `checks.helm-chart` (`nix/checks/helm-chart.nix`): `helm lint --strict`; the default render is a
+      single-replica StatefulSet with the var PVC, non-root 1030, both probes and no initial-admin environment or
+      Secret; the render with every option has both read-only Secret mounts and the external admin groups;
+      `replicas=2` fails to render; `values.yaml` and every render hold no password value or default credential.
+      Not exercised on a live cluster.
 
 ### Groovy plugin engine
 
@@ -685,7 +706,8 @@ requirements through the OIDC plugin.
       `#anExistingUserGetsTheRealmGroupsForTheRequestOnly`,
       `#neverAdminAndRejectionsAreFinalWithAGenericMessage`,
       `#anAuthenticationIsRevokedWhenThePluginIsReloadedOrRemoved`,
-      `ExpiringAuthenticationTest` (both); live
+      `ExpiringAuthenticationTest` (both), `ExternalAdminMappingTest` (all 3, among them
+      `#grantsAdminOnlyWhenClaimedAndAGroupIsConfigured`, `#disabledNeverGrantsAdmin`); live
       `I4.jit-user-has-only-the-allowed-existing-non-admin-group`,
       `I7.without-the-plugin-jwts-are-refused`.
 - [x] P4. The `security` binding gains, for realm and execution code only,
@@ -846,44 +868,320 @@ hooks feed the same Java enforcement as Groovy ones: realm results go through P1
 Stock Artifactory, through JFrog Access, creates `admin` with the published password `password`. The fork ships no
 default credential. A fresh installation starts unclaimed: the administrator account exists but has no password, so no
 password can log in until an operator who can read a one-time setup secret sets one. That first claim is the forced
-initial password reset. These requirements bind the fork's own security layer that replaces JFrog Access.
+initial password reset. These requirements bind the fork's own security layer that replaces JFrog Access (see Embedded
+access).
 
-- [ ] IA1. No default credentials. On first start the built-in administrator (`admin`) is created with no password hash
-      and the state `unclaimed`; no password, API key or token authenticates as it. Nothing in the image, the Helm
-      values or the documentation contains a default password.
+The bootstrap lives in `backend/core/.../security/access/embedded/` (pure rules in `core/`, the shell
+`AdminBootstrapService` and `PasswordHasher` in `bootstrap/`), with `InitialAdminResource` in web/rest and
+`InitialSetupFilter` and `MustChangePasswordGate` in web/application. Live evidence is `docker/it/run-min-it.sh`
+(2026-11-13, 22 passed 0 failed) on the minimal image, which has no Access service; `docker/it/initial-admin.sh`
+claims the server the same way for the other live tests.
+
+- [x] IA1. No default credentials. On first start the built-in administrator (`admin`) is created with no password
+      hash and the state `unclaimed`; no password, API key or token authenticates as it. Nothing in the image, the
+      Helm values or the documentation contains a default password.
+      As built: the schema seeds `admin` (and `anonymous`) with a NULL hash, and recreates `admin` the same way if it
+      is deleted; a NULL hash never matches. `SecurityService.DEFAULT_ADMIN_PASSWORD`, `SecurityUtils.isDefaultAdmin`,
+      the `access.creds` write and the onboarding probe for the old default password are gone. Evidence:
+      `EmbeddedAccessFactoryTest#firstStartSeedsUsersEncryptsTheKeyAndOpensTheSetupToken`,
+      `JdbcEmbeddedAccessStoreTest` (inherited from `AbstractEmbeddedAccessStoreTest`)
+      `#schemaIsIdempotentAndSeedsPasswordlessAdmin` and `#adminIsReseededWhenAbsent`,
+      `EmbeddedAccessAdaptersTest#nullHashNeverAuthenticates`, `PasswordHasherTest#nullHashNeverMatches`,
+      `GetArtifactoryInitStatusServiceTest#executeReportsInitialSetupRequiredWithoutAnyPasswordProbe`; while unclaimed
+      nothing but ping, the probes and the claim gets past `InitialSetupFilter` (IA3), so no API key or token is ever
+      looked at. Image and Helm: N7 and N8. Live: `IA1.IA3.default-and-empty-password-503-before-claim`,
+      `IA1.N3.admin-login-after-claim-default-password-401`. Documentation: on 2026-11-13 a search of `README.md`,
+      `deploy/`, `nix/` and `docker/` for `admin:password` and `password=password` finds only the checks that forbid
+      them and the live test that asserts they fail.
 - [ ] IA2. First start generates a one-time setup token from the JVM's secure random source (at least 128 bits,
       URL-safe encoding) and writes it to `$JFROG_HOME/artifactory/var/etc/security/initial-admin.token`, owned by the
       service user with mode 0600. Only the file's path is logged, never the token. An operator may supply the token
       instead through a file named by `INITIAL_ADMIN_TOKEN_FILE` (for example a mounted Kubernetes Secret); then none
       is generated. The token expires after a configurable period (default 24 hours); an expired token is replaced by
       a new one on the next start, and the replacement is logged the same way.
-- [ ] IA3. While unclaimed, every endpoint except `GET /artifactory/api/system/ping`, readiness and the claim endpoint
+      As built: 32 `SecureRandom` bytes, base64url without padding (43 characters), written as a 0600 temporary file
+      and moved into place; only its SHA-256 is stored. The period is `security.initialAdmin.tokenTtlHours`. A
+      supplied file must hold 22 to 1024 printable ASCII characters and at most 1 KiB. Evidence:
+      `AdminBootstrapServiceTest#firstStartWritesOwnerOnlyTokenFileAndStoresOnlyItsHash`,
+      `#restartWithValidTokenKeepsIt`, `#expiredTokenIsReplacedOnNextStart`, `#missingTokenFileIsReplacedOnNextStart`,
+      `#suppliedTokenFileIsUsedAndNothingIsGenerated`, `#suppliedTokenReplacesAGeneratedOneAndDeletesItsFile`,
+      `#oversizedEmptyOrMissingSuppliedFileIsRefused`, `#suppliedFileIsReadAsUtf8`;
+      `BootstrapRulesTest#firstStartGenerates`, `#validGeneratedTokenIsKeptAndExpiredOneRegenerated`,
+      `#suppliedTokenIsUsedInsteadOfGenerating`, `#sameSuppliedTokenIsKeptUntilItExpires`,
+      `#withdrawnSuppliedTokenIsReplacedByAGeneratedOne`, `#malformedSuppliedTokenOrBadTtlIsRefused`,
+      `#tokenFormatBounds`; live `IA2.setup-token-file-written-private` (mode 600, 43 characters, in a container
+      running as uid 1030).
+      Not yet checked: no test asserts what is logged. The live run's log has one WARN naming the file's path, the
+      reason and the expiry, and no token, but that was read by hand, not asserted, and the replacement message was
+      not looked at.
+- [x] IA3. While unclaimed, every endpoint except `GET /artifactory/api/system/ping`, readiness and the claim endpoint
       answers 503 with a fixed "initial setup required" body. Anonymous access, plugins' executions and realms, and
       the OCI `/v2` API are unavailable until the claim, so an unclaimed server exposes nothing.
-- [ ] IA4. `POST /artifactory/api/setup/initial-admin` with the setup token and a new password claims the server: the
+      As built: `InitialSetupFilter` sits in `web.xml` between `ArtifactoryProbesFilter` and `AccessFilter`; it lets
+      through ping, the readiness and liveness probes and `POST /api/setup/initial-admin` only, and fails closed (503)
+      when the bootstrap service is missing in embedded mode. Evidence: `InitialSetupFilterTest` (all, among them
+      `#blocksEverythingElseBeforeTheClaim`, which covers `/v2/`, the Docker API and look-alikes of the ping path,
+      `#letsPingProbesAndTheClaimThroughBeforeTheClaim`, `#passesEverythingThroughAfterTheClaimAndStopsAsking`,
+      `#opensWhenTheClaimHappensWhileRunning`, `#failsClosedWhenTheServiceIsMissing`,
+      `#embeddedOrUnknownModeStaysClosedWithoutService`, `#anonymousInterceptorAcceptsOnlyTheClaim`),
+      `InitialAdminResourceTest#missingServiceAnswers503`; live `IA3.probes-answer-before-claim`,
+      `IA1.IA3.default-and-empty-password-503-before-claim`, `IA3.arbitrary-endpoints-503-before-claim` (REST
+      configuration, users, token mint, plugin list, repository deploy and listing, `/v2/`, the web app, a ping path
+      with `..` and a path below the claim endpoint).
+- [x] IA4. `POST /artifactory/api/setup/initial-admin` with the setup token and a new password claims the server: the
       token is compared in constant time, attempts are rate-limited per client address and in total, and the endpoint
-      accepts requests only while unclaimed. The password must pass the policy in IA6. On success the password is stored
-      only as a salted hash from a slow key-derivation function (PBKDF2-HMAC-SHA256 with at least 600,000 iterations,
-      or bcrypt with cost 12 or more; pure Java, no native code), the token is invalidated and its file deleted, the
-      state becomes `claimed`, and an audit event records the claim with the client address. A second claim, a reused
-      token or an expired token is refused with the same generic error.
+      accepts requests only while unclaimed. The password must pass the policy in IA6. On success the password is
+      stored only as a salted hash from a slow key-derivation function (PBKDF2-HMAC-SHA256 with at least 600,000
+      iterations, or bcrypt with cost 12 or more; pure Java, no native code), the token is invalidated and its file
+      deleted, the state becomes `claimed`, and an audit event records the claim with the client address. A second
+      claim, a reused token or an expired token is refused with the same generic error.
+      As built: SHA-256 of the token compared with `MessageDigest.isEqual`; 5 attempts per client and 30 in total per
+      15 minutes (429), refused attempts never touch the store, and a valid token is never locked out by exhausted
+      limits; the hash is `{bcrypt}` at cost 12 from spring-security-crypto (pure Java), and `{pbkdf2}` hashes at
+      600,000 iterations are also accepted; hash, must-change flag and state are written in one transaction with a
+      compare-and-swap on the stored state; the client address is the socket address (`X-Forwarded-For` is ignored). A
+      token supplied through `INITIAL_ADMIN_TOKEN_FILE` is invalidated but its file, the operator's read-only Secret,
+      is left in place. Evidence: `BootstrapRulesTest#correctTokenClaims`,
+      `#secondClaimReusedTokenExpiredAndWrongTokenAllGetTheSameError`, `#constantTimeCompare`,
+      `#claimedStaysClaimedWhateverIsSupplied`; `ClaimRateLimitTest` (all 7);
+      `AdminBootstrapServiceTest#claimSetsHashDeletesGeneratedFileAndAudits`,
+      `#claimWithSuppliedTokenLeavesTheOperatorsFile`, `#everyFailureIsTheSameGenericRefusal`,
+      `#wrongTokenAttemptsAreRateLimitedPerClientAndGlobally`, `#validTokenIsNeverLockedOutByExhaustedLimits`,
+      `#refusedAndRateLimitedAttemptsDoNotReadTheStore`, `#conflictingClaimIsRefused`; `InitialAdminResourceTest` (all
+      7, among them `#successfulClaimAnswers200`, `#rateLimitedClaimAnswers429`, `#refusedClaimAnswersTheGeneric400`,
+      `#forwardedHeaderIsIgnoredAndTheSocketAddressIsPassedOn`);
+      `EmbeddedAccessFactoryTest#claimThroughTheStorePortSetsThePasswordAndStateTogether`,
+      `#storePortSaveIsCompareAndSwap`; the key-derivation function:
+      `PasswordHasherTest#encodesBcryptWithCost12AndVerifies`, `#saltsEachHash`,
+      `#acceptsPbkdf2Sha256With600kIterations`. Live: `IA4.IA6.wrong-token-and-weak-password-400` (the same body for
+      both), `IA4.claim-with-setup-token-200`, `IA4.token-file-deleted-after-claim`, `IA4.second-claim-400`,
+      `IA4.EA7.still-claimed-after-restart`, and in `docker/it/run-it.sh` `IA4.EA17.fork-claimed-on-existing-data`.
 - [ ] IA5. Forced password change: an account flag `mustChangePassword` is set on every account whose password was not
       chosen by its holder, namely an administrator password supplied by an operator (for example through a Helm
       Secret, which is then only a temporary password), a password set or reset by another administrator, and a
       password restored from a break-glass procedure. A login with such an account yields only the right to call the
-      change-password endpoint; every other request answers 403 "password change required" until the holder sets a
-      new password that differs from the temporary one. API keys and tokens cannot be created for such an account.
+      change-password endpoint; every other request answers 403 "password change required" until the holder sets a new
+      password that differs from the temporary one. API keys and tokens cannot be created for such an account.
+      As built: the flag is the `ea_users.must_change_password` column, seen by Artifactory as the custom datum
+      `must_change_password` and `UserInfo.isMustChangePassword()`. `INITIAL_ADMIN_PASSWORD_FILE` claims the server on
+      start with the flag set. `MustChangePasswordGate` (called from `AccessFilter`) allows only the change-password
+      and logout endpoints. Evidence:
+      `AdminBootstrapServiceTest#operatorSuppliedPasswordClaimsWithMustChangeAndNoTokenFile`,
+      `#operatorSuppliedPasswordIsIgnoredOnceClaimed`, `#badOperatorSuppliedPasswordFileKeepsTheServerUnclaimed`;
+      `SecurityServiceMustChangePasswordTest` (all 13, among them `#adminCreatingAnotherUserWithAPasswordSetsTheFlag`,
+      `#adminUpdatingAnotherUsersPasswordSetsTheFlag`,
+      `#adminResetWithoutValidationSetsTheFlagButAnonymousResetDoesNot`,
+      `#holderChangingToADifferentPasswordClearsTheFlag`,
+      `#holderReusingTheTemporaryPasswordIsRefusedAndKeepsTheFlag`, `#apiKeyIsRefusedForAFlaggedUser`);
+      `MustChangePasswordRulesTest` (all 4); `MustChangePasswordGateTest` (all 10);
+      `AccessServiceImplTest#createTokenRefusedForUserWhoMustChangePassword`;
+      `PluginSecurityMustChangePasswordTest#flaggedCallerIsRefusedWithoutMinting`; `UserMapperMustChangePasswordTest`,
+      `AccessUserGroupStoreMustChangePasswordTest`,
+      `EmbeddedAccessAdaptersTest#mustChangePasswordDatumMapsToTheColumn`,
+      `EmbeddedAccessContractTest#mustChangeFlagAndBulkPasswordExpiryRoundTrip`. In practice `docker/it/run-oci-it.sh`
+      creates its users with a password and has each change it before use.
+      Not yet checked: no break-glass procedure exists, so "a password restored from a break-glass procedure" has
+      nothing to set the flag; and no live test asserts the 403 for a flagged login.
 - [ ] IA6. Password policy: at least 12 characters, not equal to or containing the username, not in a bundled list of
       common and breached passwords, and checked without network access. The policy applies to the claim, to every
       password change and to administrator resets.
+      As built: `PasswordPolicy` (pure, no network) behind `PasswordPolicyChecker`, implemented by
+      `LocalPasswordPolicyChecker`; it is applied when a password is set, not at login, and fails closed when its list
+      cannot be loaded. Evidence: `PasswordPolicyTest` (all 8, among them `#tooShort`, `#lengthCountsCodePoints`,
+      `#equalToOrContainingUsernameIgnoringCase`, `#commonPasswordIgnoringCase`,
+      `#bundledListLoadsAndRejectsObviousPasswords`); `SecurityServicePasswordPolicyTest` (all 5, among them
+      `#administratorResetAndHolderChangeAreChecked`, `#checkerFailsClosedWithoutItsList`);
+      `SecurityUtilsTest#testValidatePasswordPolicyDelegatesToTheCheckerWithTheUsername`,
+      `#testValidatePasswordPolicyHasNoExemptions`, `#testValidatePasswordPolicyFailsClosedWithoutAChecker`;
+      `EmbeddedAccessAdaptersTest#passwordPolicyIsApplied`; the claim:
+      `AdminBootstrapServiceTest#everyFailureIsTheSameGenericRefusal` and live
+      `IA4.IA6.wrong-token-and-weak-password-400`.
+      Not yet checked: the bundled list (`embedded-access/common-passwords.txt`) is a self-authored list of 195
+      obvious passwords, not a list of breached passwords. A larger list under a compatible licence (for example an
+      MIT-licensed SecLists list) has to replace it.
 - [ ] IA7. External identity does not bypass the bootstrap: plugin realms (including the WASM OIDC module) never grant
       administrator rights (P3), and mapping an external group to administrator is an explicit Java-side setting that
       takes effect only after the server is claimed. The local administrator remains as the break-glass account when
       the external identity provider is unavailable.
-- [ ] IA8. Tested end to end: unit tests for token generation, expiry, constant-time comparison, rate limits, the
+      As built: P3 holds for Groovy and WASM realms, and `ExternalAdminMapping` reads
+      `artifactory.security.externalAdminGroups` (empty by default) and grants admin for one authentication only once
+      the server is claimed; while unclaimed, `InitialSetupFilter` keeps realms from running at all (IA3).
+      Evidence: `ExternalAdminMappingTest` (all 3, among them `#grantsAdminOnlyWhenClaimedAndAGroupIsConfigured`,
+      `#disabledNeverGrantsAdmin`), P3's tests, live `P3.wasm-realm-cannot-grant-admin-and-rejections-are-final`.
+      Not yet checked: no live test configures an external admin group and logs in through a realm before and after
+      the claim, and none shows the local administrator logging in while the identity provider is unreachable.
+- [x] IA8. Tested end to end: unit tests for token generation, expiry, constant-time comparison, rate limits, the
       policy and the state machine (unclaimed, claimed, must-change), and a live test that starts a fresh image,
       confirms `admin`/`password` and every other default fail, reads the token from the volume, claims the server,
       logs in, and confirms the token file is gone and a second claim is refused.
+      Evidence: the unit tests cited under IA1 to IA6 (`BootstrapRulesTest`, `ClaimRateLimitTest`,
+      `AdminBootstrapServiceTest`, `PasswordPolicyTest`, `PasswordHasherTest`, `MustChangePasswordRulesTest`,
+      `InitialSetupFilterTest`, `InitialAdminResourceTest`); live `docker/it/run-min-it.sh` on 2026-11-13 against a
+      fresh volume: `IA2.setup-token-file-written-private`, `IA3.probes-answer-before-claim`,
+      `IA1.IA3.default-and-empty-password-503-before-claim`, `IA3.arbitrary-endpoints-503-before-claim`,
+      `IA4.IA6.wrong-token-and-weak-password-400`, `IA4.claim-with-setup-token-200`,
+      `IA4.token-file-deleted-after-claim`, `IA4.second-claim-400`,
+      `IA1.N3.admin-login-after-claim-default-password-401`, and after a restart
+      `IA4.EA7.still-claimed-after-restart`.
+
+## Embedded access
+
+JFrog Access (users, groups, permissions, tokens, platform configuration) is closed source with no redistribution
+licence, so the fork does not use it. Artifactory talks to Access only through the
+`org.jfrog.access.client.AccessClient` interfaces, which are public; the fork implements the part of them it calls, in
+process, in `backend/core/.../security/access/embedded/`. The package is split as the rest of the fork: pure rules and
+values in `core/` (`EaOutcome`, `ScopeGrammar`, `Revocability`, `TokenClaimsFactory`, `PasswordPolicy`,
+`BootstrapRules`, `ClaimRateLimit`, `LastUpdatedClock`), the JDBC store in `store/`, the `AccessClient` adapters in
+`client/`, the initial-admin bootstrap in `bootstrap/`, and `EmbeddedAccessFactory`, which `AccessServiceImpl` calls
+in place of `AccessClientBootstrap`. Identity from an external provider comes through plugin realms (P1 to P6).
+Embedded access is for fresh installations: it does not read data a stock Access server wrote.
+
+- [x] EA1. Embedded access is the default (`artifactory.access.embedded.enabled`, default `true`): `AccessServiceImpl`
+      installs an in-process `EmbeddedAccessClient` with no Access server, network hop, join key, Access admin token,
+      router registration or JFrog wire format, stores the embedded certificate as the Access root certificate
+      (`keys/root.crt`) so token verification stays local, and refuses the proxy token path to Access.
+      Evidence: `AccessServiceImplEmbeddedTest#initInstallsTheEmbeddedClientAndPublishesTheBootstrapService`,
+      `#failedCredentialsAreNotRetriedInEmbeddedMode`;
+      `EmbeddedAccessFactoryTest#firstStartSeedsUsersEncryptsTheKeyAndOpensTheSetupToken`; live: every
+      `docker/it/run-min-it.sh` check runs on the minimal image alone (N3, N7), among them
+      `N6.N7.runs-as-non-root-without-access-config`.
+- [x] EA2. Every Access client operation the fork calls is served. A committed inventory
+      (`backend/core/src/test/resources/embedded-access/access-lite-operations.tsv`, 149 rows, no JFrog payloads)
+      classes each as critical (startup or every request), feature, optional (a safe default answer), or unsupported,
+      and the real Artifactory services work against the embedded client.
+      Evidence: `AccessLiteOperationsCoverageTest#inventoryIsWellFormedAndFreeOfVendorPayloads`,
+      `#criticalAndFeatureRowsAreImplementedAndUnsupportedRowsFailClosed`; `EmbeddedAccessContractTest` (all 4:
+      `#usersAndGroupsRoundTripThroughArtifactoryServices`, `#mustChangeFlagAndBulkPasswordExpiryRoundTrip`,
+      `#aclsFollowPermissionChangesAndAuthorizationSeesThem`, `#platformConfigRoundTrip`, driving the real
+      `AccessUserGroupStoreService`, `AclStoreServiceImpl`, `AuthorizationServiceImpl` and
+      `PlatformConfigServiceImpl`); `EmbeddedAccessAdaptersTest` (all 17).
+- [x] EA3. Fail closed: every Access client surface or method that embedded access does not implement (among them
+      certificates, the gRPC users, groups, system, permissions-v2 and proxy clients, imports, topology, proxies,
+      vaults, locks and federation, and any method an adapter does not override) throws an `AccessClientException`
+      ("not supported by embedded access: ..."); it never answers success. Only `registry()`, `notifications()` and
+      `router()` are logged no-ops.
+      Evidence: `FailClosedTest` (all 9, among them `#refusingProxyThrowsTheFixedMessage`,
+      `#backedProxyDispatchesAndRefusesTheRest`, `#delegateSignatureMistakesFailAtConstruction`,
+      `#loggedNoOpSurfaceSucceeds`, `#everyEmbeddedSurfaceBuilds`); the unsupported rows of EA2's inventory.
+- [x] EA4. Embedded access runs on Derby or PostgreSQL. Any other database type stops startup with a message naming
+      it, before any table is touched; so does a missing master encryption key.
+      Evidence: `JdbcEmbeddedAccessStoreTest#unsupportedDatabaseIsRefusedWithoutTouchingIt`, `#supportedTypes`;
+      `EmbeddedAccessFactoryTest#unsupportedDatabaseAndMissingEncryptionStopStartup`;
+      `AccessServiceImplEmbeddedTest#refusedEmbeddedStartStopsStartupWithTheReason`; Derby: every store test below and
+      every live test.
+- [ ] EA5. On PostgreSQL the store behaves exactly as on Derby (the same tables from `embedded-access/postgresql.sql`,
+      the same contract). `JdbcEmbeddedAccessStorePostgresTest` runs the whole store contract
+      (`AbstractEmbeddedAccessStoreTest`) on PostgreSQL, and
+      `JdbcEmbeddedAccessStoreTest#bothDdlResourcesDefineTheSameTables` compares the two DDL files.
+      Not yet checked: the PostgreSQL test runs only when `EA_PG_URL` names a database, and it has not run; no live
+      test uses PostgreSQL.
+- [x] EA6. Embedded access is single node: one Artifactory process owns the tables, and the shipped deployment refuses
+      more than one replica. High availability is out of scope.
+      Evidence: `checks.helm-chart` (`replicas=2` fails to render, N8). Nothing at runtime detects a second node on
+      the same database; running one is unsupported.
+- [x] EA7. Persistence: users, groups, memberships, permissions, tokens and a key-value table live in the tables
+      `ea_users`, `ea_groups`, `ea_user_groups` (deleted with the user or group), `ea_permissions`, `ea_tokens` and
+      `ea_kv` (platform and security configuration, licence, bootstrap state, the encrypted signing key and
+      `permissions.last_updated`), created idempotently on start (`EmbeddedAccessSchema.ensure`). Each store operation
+      is one transaction; `ea_kv` writes are compare-and-swap on a revision with bounded retries. Everything survives
+      a restart.
+      Evidence: `JdbcEmbeddedAccessStoreTest` on Derby (the 21 tests of `AbstractEmbeddedAccessStoreTest`, among them
+      `#userCreateReadFindAndList`, `#deleteUserRemovesMemberships`, `#groupDeleteCascadesToMemberships`,
+      `#permissionCrudFindAndMentions`, `#tokenInsertReadListAndRevoke`, `#kvCompareAndSet`,
+      `#kvUpdateRetriesAfterAConflict`, `#kvUpdateGivesUpAfterThreeRetriesAndPassesRefusals`,
+      `#setPasswordAndReplaceKvWritesBothOrNeither`, `#updateAllUsersWritesOnlyChangedUsersInOneTransaction`, plus
+      `#scriptSplitterDropsCommentsAndBlankStatements`); live `IA4.EA7.still-claimed-after-restart`.
+- [x] EA8. Changes reach Artifactory's caches without polling Access: every user, group, membership or permission
+      change advances `permissions.last_updated` (strictly increasing) in the same transaction, so the existing ACL
+      freshness polling sees it, and an in-process bus publishes the affected users and groups after commit, in order,
+      on one thread, coalescing into one "everything changed" event when its bounded queue overflows. A revoked token
+      publishes its subject, so cached authentications of that user are dropped.
+      Evidence: `JdbcEmbeddedAccessStoreTest#everyMutationAdvancesLastUpdatedMonotonically`,
+      `#lastUpdatedBumpIsInTheSameTransaction`, `#mutationsPublishAfterCommitWithAffectedPrincipals`;
+      `TokenRulesTest#lastUpdatedClockIsStrictlyIncreasing`; `EaChangeBusTest` (all 3, among them
+      `#overflowCoalescesIntoOneEverythingChangedEvent`);
+      `EmbeddedAccessAdaptersTest#permissionCrudLastUpdatedAndChangeEvents`,
+      `#tokenRevocationReachesPermissionConsumersAsTheUser`;
+      `EmbeddedAccessContractTest#aclsFollowPermissionChangesAndAuthorizationSeesThem`.
+- [x] EA9. Signing key: on first start embedded access generates an RSA-2048 key and a self-signed certificate naming
+      the Access service id `jfac@<id>` (the same id as `jfrt@<id>`), stores the key encrypted with the master key in
+      `ea_kv`, and reuses it on every later start, so tokens minted before a restart still verify. A key that the
+      current master key cannot decrypt stops startup.
+      Evidence: `EaKeyMaterialTest#generatedKeysParseAndNameTheService`, `#mismatchedKeyAndCertificateAreRefused`;
+      `EmbeddedAccessFactoryTest#firstStartSeedsUsersEncryptsTheKeyAndOpensTheSetupToken` (stored encrypted),
+      `#restartKeepsTheSigningKeySoOldTokensVerify`, `#keyEncryptedWithAnotherMasterKeyIsRefused`;
+      `TokenRulesTest#serviceIds`; live `EA9.old-token-verifies-after-restart`.
+- [x] EA10. Access tokens are JWTs signed with that key (RS256) with the claims Artifactory expects (`sub`, `scp`,
+      `aud`, `iss`, `exp`, `iat`, `jti`), and verify both through embedded access and through the stock
+      `ClientTokenVerifyContext` against `root.crt`. Expired tokens, tokens signed by another key, foreign issuers,
+      reference tokens and scopes outside the grammar are refused.
+      Evidence: `EmbeddedTokenRoundTripTest#mintedTokenHasTheClaimsArtifactoryExpectsAndVerifies`,
+      `#expiredTokenIsRefused`, `#tokenSignedByAnotherKeyIsRefused`, `#foreignIssuerAndReferenceTokensAreRefused`,
+      `#noExpiryAndDefaultExpiry`, `#scopesArtifactoryRequestsAreAccepted`, `#invalidScopeIsRefused`;
+      `TokenRulesTest#claimsHaveAccessShape`, `#nonExpiringTokenHasNoExpAndMultiAudienceIsAList`,
+      `#claimInputsAreValidated`; `ScopeGrammarTest` (all 9); live `N3.token-mint-and-bearer-use` (a tampered token
+      answers 401).
+- [x] EA11. Refresh tokens are random, stored only as their SHA-256 hash, and usable once: a refresh revokes the old
+      access token, works for an expired token only inside the refresh window, and is refused for a disabled or
+      deleted user. Expired token rows are purged after the refresh window.
+      Evidence: `EmbeddedTokenRoundTripTest#refreshWorksOnceAndRevokesTheOldToken` ("only the hash is stored"),
+      `#refreshOfAnExpiredTokenWorksInsideTheWindowOnly`, `#refreshIsRefusedForADisabledUser`;
+      `JdbcEmbeddedAccessStoreTest#refreshTokenIsConsumedOnce`, `#purgeDeletesOnlyTokensExpiredBeforeTheCutOff`;
+      `EmbeddedAccessFactoryTest#purgeKeepsRecordsForTheRefreshWindow`.
+- [x] EA12. Revocation: a revoked token fails verification at once. Tokens that are refreshable or live longer than
+      21,600 seconds are revocable by id or value, by user and by scope, as in Access; shorter non-refreshable tokens
+      are not. Deleting a user revokes all of its tokens, the non-revocable ones included.
+      Evidence: `EmbeddedTokenRoundTripTest#revokedTokenFailsVerificationAndRevocationIsPublished`,
+      `#revokeByValueAndNonRevocableTokens`, `#revokeAllForUserAndScopeAndTokenList`,
+      `#deletingAUserRevokesAllOfItsTokensIncludingNonRevocableOnes`;
+      `TokenRulesTest#revocabilityWithSubSecondLifetimeAboveThreshold`,
+      `ValueTypesTest#tokenInvariantsAndRevocability`.
+- [x] EA13. Password authentication: passwords are verified against `{bcrypt}` (cost 12) or `{pbkdf2}` (600,000
+      iterations) hashes in pure Java; an unknown user still runs a comparison against a dummy hash, so timing does
+      not reveal which users exist; a NULL hash, a disabled or a locked user, and an overlong password never
+      authenticate; anonymous logs in only while anonymous access is enabled. The provider order is unchanged, so
+      plugin realms still run before stored passwords (P2).
+      Evidence: `PasswordHasherTest` (all 6); `EmbeddedAccessAdaptersTest#passwordAuthentication`,
+      `#unknownUsersStillRunTheComparison`, `#nullHashNeverAuthenticates`, `#disabledAndLockedUsersNeverAuthenticate`,
+      `#tokenAsPasswordAndAuthHeader`; `EmbeddedAccessFactoryTest#passwordVerifierRefusesOverlongPasswords`,
+      `#anonymousLogsInOnlyWhileAnonymousAccessIsEnabled`,
+      `#passwordExpiryForAllUsersSkipsPasswordlessUsersAndRoundTrips`;
+      `PluginRealmProviderOrderTest#pluginRealmProviderComesBeforeStoredPasswordProviders`.
+- [ ] EA14. LDAP and Crowd settings are stored in `ea_kv` (encrypted with the master key) and used by Artifactory's
+      existing LDAP and Crowd providers; SAML, OAuth and HTTP SSO settings are stored but have no effect.
+      Evidence so far: `EmbeddedAccessAdaptersTest#securityConfigDeepMergesWithDefaults`,
+      `#authSettingsRoundTripAndEnableRealms` (the settings round trip).
+      Not yet checked: no test logs in through an LDAP directory or Crowd with embedded access.
+- [ ] EA15. Refused in embedded mode, and documented as such: OAuth user registration (`users().register`, the
+      invitation activation of the OAuth flow) fails closed, and fine-grained permission scopes
+      (`auth().principalCanDo`) answer `false`, so a token's permission scope never widens what the ACLs allow.
+      Evidence so far: registration is an unsupported row of EA2's inventory, so
+      `AccessLiteOperationsCoverageTest#criticalAndFeatureRowsAreImplementedAndUnsupportedRowsFailClosed` shows it
+      refused. Open: `principalCanDo` is an optional row; no test asserts that it answers `false`, and whether
+      features that rely on it (token permission scopes) should work in embedded mode is undecided.
+- [ ] EA16. Stock mode is an explicit opt-out: `artifactory.access.embedded.enabled=false` restores the stock external
+      Access server (with its join key and router), logs a WARN on start that the initial-admin bootstrap (IA1 to IA8)
+      does not apply, and `InitialSetupFilter` lets everything through.
+      Evidence so far: `InitialSetupFilterTest#stockAccessModePassesEverythingAsAnExplicitOptOut`.
+      Not yet checked: no test asserts the WARN, and stock mode has not been run against an Access server since
+      embedded access was added.
+- [x] EA17. No migration from stock Access: embedded access starts from its own empty tables. On a volume a stock
+      installation wrote, repositories and artifacts stay readable (B2), the stock administrator password does not log
+      in, and the server must be claimed (IA4).
+      Evidence: `docker/it/run-it.sh` on 2026-11-13: `IA4.EA17.fork-claimed-on-existing-data` (the claimed
+      administrator 200, the stock phase's password 401), `B2.stock-data-readable`.
+- [ ] EA18. Open decision: default groups and permission targets. Stock Access seeds a `readers` group and the
+      `Anything` permission target; embedded access seeds only `admin` and `anonymous`. A realm that assigns `readers`
+      therefore grants nothing (P3 applies only existing groups), and OSS has no public API to create groups, so
+      `run-min-it.sh` grants its realm user read access through a permission target it creates. Whether to seed the
+      stock defaults, seed something narrower, or document the empty start is undecided.
+- [ ] EA19. Open: in the stock-image overlay deployment (B2) with embedded access, the stock router's port 8082 does
+      not route to the fork; Artifactory's own port 8081 has to be exposed and used instead. The overlay should either
+      route 8082 or document 8081; the minimal image (N3) has no router and serves 8081 directly.
+
+Out of scope for embedded access: high availability and more than one node (EA6); MySQL, Oracle and MSSQL; migration
+from stock Access data (EA17); mTLS; reference tokens; projects other than `default`; federation; vaults; SAML and
+OAuth behaviour (EA14, EA15); the Auth0 password grant; and a separate Access-compatible network service.
 
 ## Out of scope for the first iteration
 
@@ -892,3 +1190,5 @@ initial password reset. These requirements bind the fork's own security layer th
 - UI listing of plugin types. The Angular frontend is not in the OSS sources.
 - Jobs, staging and promotion DSL blocks (realms: see Plugin realms).
 - Opt-in compilation of WASM modules to JVM bytecode (W4).
+- Embedded access beyond a single node on Derby or PostgreSQL for fresh installations (see the list at the end
+  of Embedded access).

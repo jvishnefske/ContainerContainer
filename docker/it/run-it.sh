@@ -187,7 +187,7 @@ ia_claim_server "$NAME" "$BASE" || { DETAIL="see $LOG_DIR/$NAME.log"; check "set
 http -u "admin:$STOCK_PASSWORD" "$BASE/api/system/version"; old="$CODE"
 http -u "$ADMIN" "$BASE/api/system/version"
 DETAIL="claimed admin $CODE, stock phase password $old"
-check "IA3.fork-claimed-on-existing-data" test "$CODE" = 200 -a "$old" = 401
+check "IA4.EA17.fork-claimed-on-existing-data" test "$CODE" = 200 -a "$old" = 401
 
 http -u "$ADMIN" "$BASE/stock-local/data/stock.bin"
 cmp -s "$WORK/body" "$WORK/stock.bin"; same=$?

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Live integration test of the minimal from-scratch OCI image (design.md N3, N6, IA1-IA8): packages.oci-example,
+# Live integration test of the minimal from-scratch OCI image (design.md N3, N6, N7, IA1-IA8, EA): packages.oci-example,
 # which is lib.mkImage with the public example plugins (plugins/oci/oci-registry.groovy and the echo-realm WASM
 # module). The image runs alone: access is embedded, so there is no Access service, sidecar, join key or network.
 #
 #  1. Builds packages.oci-example with Nix and loads it with `docker load` (SKIP_BUILD=1 reuses a loaded image;
 #     IMAGE_TAR loads a given archive instead).
 #  2. Starts rt-min-it on a fresh volume, publishing only port 8081 on 127.0.0.1.
-#  3. Before the claim (IA1, IA2, IA4, IA8): ping and the probes answer; admin:password, an empty password, anonymous
+#  3. Before the claim (IA1, IA2, IA3): ping and the probes answer; admin:password, an empty password, anonymous
 #     requests and arbitrary endpoints (REST, token mint, repository content, /v2/) all answer 503 with the fixed
 #     body; the setup token file exists, is private (0600) and long enough.
-#  4. The claim (IA3, IA5): a wrong token and a weak password are refused with 400 and do not use up the token; the
+#  4. The claim (IA4, IA6): a wrong token and a weak password are refused with 400 and do not use up the token; the
 #     right token with a random strong password (generated here, kept only in this shell and the private work
 #     directory) answers 200; the token file is gone; a second claim with the same token answers 400;
 #     admin:password and an empty password answer 401 and the new password logs in.
@@ -19,8 +19,8 @@
 #     the oci-registry plugin is loaded, /v2/ answers 401 to anonymous and 200 to admin, and a blob and manifest
 #     push and pull round trip through /v2/; the echo-realm WASM plugin is loaded and a realm Bearer token runs
 #     its echoMint execution as the realm user; no web UI is served.
-#  6. Restart (IA6, embedded access persistence): after `docker restart` the server is still claimed (no 503, the
-#     old setup token is refused, the token file is still gone, no new one is written), the administrator
+#  6. Restart (IA4, EA7, EA9: embedded access persistence): after `docker restart` the server is still claimed (no
+#     503, the old setup token is refused, the token file is still gone, no new one is written), the administrator
 #     password still works, and the access token minted before the restart still verifies.
 #
 # Clients talk only to 127.0.0.1:<port> of the container this script starts. No address range is probed.
@@ -145,9 +145,9 @@ uid="$(docker exec "$NAME" id -u)"
 user="$(docker image inspect "$IMAGE" --format '{{.Config.User}}')"
 env_access="$(docker image inspect "$IMAGE" --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -c '^ACCESS_')"
 DETAIL="process uid $uid, image user $user, ACCESS_* variables in the image: $env_access"
-check "N6.runs-as-non-root-without-access-config" eval '[ "$uid" = 1030 ] && [ "$user" = 1030:1030 ] && [ "$env_access" = 0 ]'
+check "N6.N7.runs-as-non-root-without-access-config" eval '[ "$uid" = 1030 ] && [ "$user" = 1030:1030 ] && [ "$env_access" = 0 ]'
 
-# --- Before the claim: closed, no default credential (IA1, IA2, IA4, IA8) ------------------------------------------
+# --- Before the claim: closed, no default credential (IA1, IA2, IA3) ------------------------------------------------
 TOKEN_FILE_INFO="$(docker exec "$NAME" stat -c '%a %s' "$IA_TOKEN_PATH" 2>/dev/null)"
 SETUP_TOKEN="$(ia_read_token "$NAME")"
 DETAIL="token file mode/size: ${TOKEN_FILE_INFO:-missing}, token ${#SETUP_TOKEN} chars"
@@ -156,14 +156,14 @@ check "IA2.setup-token-file-written-private" eval '[ "${TOKEN_FILE_INFO%% *}" = 
 ready="$(code_of "$BASE/api/v1/system/readiness")"
 live="$(code_of "$BASE/api/v1/system/liveness")"
 DETAIL="readiness $ready, liveness $live"
-check "IA8.probes-answer-before-claim" eval '[ "$ready" = 200 ] && [ "$live" = 200 ]'
+check "IA3.probes-answer-before-claim" eval '[ "$ready" = 200 ] && [ "$live" = 200 ]'
 
 default_pw="$(code_of -u admin:password "$BASE/api/system/version")"
 blocked_body="$(cat "$WORK/body")"
 empty_pw="$(code_of -u admin: "$BASE/api/system/version")"
 anon="$(code_of "$BASE/api/repositories")"
 DETAIL="admin:password $default_pw ('$blocked_body'), admin with empty password $empty_pw, anonymous $anon"
-check "IA1.IA8.default-and-empty-password-503-before-claim" eval '[ "$default_pw" = 503 ] && [ "$empty_pw" = 503 ] && [ "$anon" = 503 ] && [ "$blocked_body" = "initial setup required" ]'
+check "IA1.IA3.default-and-empty-password-503-before-claim" eval '[ "$default_pw" = 503 ] && [ "$empty_pw" = 503 ] && [ "$anon" = 503 ] && [ "$blocked_body" = "initial setup required" ]'
 
 blocked=""
 for req in "GET $BASE/api/system/configuration" "GET $BASE/api/security/users" "POST $BASE/api/security/token" \
@@ -173,9 +173,9 @@ for req in "GET $BASE/api/system/configuration" "GET $BASE/api/security/users" "
     blocked="$blocked $(code_of -X "${req%% *}" -u admin:password "${req#* }")"
 done
 DETAIL="arbitrary endpoints:$blocked"
-check "IA8.arbitrary-endpoints-503-before-claim" eval '[ "$(tr " " "\n" <<< "$blocked" | grep -v "^$" | sort -u)" = 503 ]'
+check "IA3.arbitrary-endpoints-503-before-claim" eval '[ "$(tr " " "\n" <<< "$blocked" | grep -v "^$" | sort -u)" = 503 ]'
 
-# --- The claim (IA3, IA5) --------------------------------------------------------------------------------------------
+# --- The claim (IA4, IA6) -------------------------------------------------------------------------------------------
 ADMIN_USER=admin
 ADMIN_PASSWORD="$(ia_password)"
 wrong="$(ia_claim "$BASE" "$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')" "$ADMIN_PASSWORD")"
@@ -183,21 +183,21 @@ wrong_body="$(cat "$WORK/ia-claim.out")"
 weak="$(ia_claim "$BASE" "$SETUP_TOKEN" password)"
 weak_body="$(cat "$WORK/ia-claim.out")"
 DETAIL="wrong token $wrong ($wrong_body), right token with weak password $weak ($weak_body)"
-check "IA3.wrong-token-and-weak-password-400" eval '[ "$wrong" = 400 ] && [ "$weak" = 400 ] && [ "$wrong_body" = "$weak_body" ]'
+check "IA4.IA6.wrong-token-and-weak-password-400" eval '[ "$wrong" = 400 ] && [ "$weak" = 400 ] && [ "$wrong_body" = "$weak_body" ]'
 
 claim="$(ia_claim "$BASE" "$SETUP_TOKEN" "$ADMIN_PASSWORD")"
 claim_body="$(cat "$WORK/ia-claim.out")"
 ADMIN="$ADMIN_USER:$ADMIN_PASSWORD"
 DETAIL="claim $claim ($claim_body)"
-check "IA3.claim-with-setup-token-200" eval '[ "$claim" = 200 ]'
+check "IA4.claim-with-setup-token-200" eval '[ "$claim" = 200 ]'
 
 if ia_token_present "$NAME"; then gone=present; else gone=gone; fi
 DETAIL="token file after claim: $gone"
-check "IA5.token-file-deleted-after-claim" test "$gone" = gone
+check "IA4.token-file-deleted-after-claim" test "$gone" = gone
 
 second="$(ia_claim "$BASE" "$SETUP_TOKEN" "$(ia_password)")"
 DETAIL="second claim with the same token $second ($(cat "$WORK/ia-claim.out"))"
-check "IA5.second-claim-400" test "$second" = 400
+check "IA4.second-claim-400" test "$second" = 400
 
 as_admin "$BASE/api/system/version"; v="$CODE"; version="$(jq -r '.version // empty' "$WORK/body" 2>/dev/null)"
 default_pw="$(code_of -u admin:password "$BASE/api/system/version")"
@@ -285,7 +285,7 @@ http "$REG/ui/"; ui="$CODE"
 DETAIL="/artifactory/webapp/ $webapp, /ui/ $ui"
 check "N6.no-web-ui" eval '[ "$webapp" != 200 ] && [ "$ui" != 200 ]'
 
-# --- Restart: still claimed, tokens still verify (IA6) --------------------------------------------------------------
+# --- Restart: still claimed, tokens still verify (IA4, EA7, EA9) ----------------------------------------------------
 say "restarting $NAME"
 docker restart -t 120 "$NAME" >/dev/null
 if wait_for_ping; then
@@ -295,15 +295,15 @@ if wait_for_ping; then
     again="$(ia_claim "$BASE" "$SETUP_TOKEN" "$(ia_password)")"
     if ia_token_present "$NAME"; then gone=present; else gone=gone; fi
     DETAIL="anonymous $anon, admin $adm, admin:password $default_pw, claim with the old token $again, token file $gone"
-    check "IA6.still-claimed-after-restart" eval '[ "$anon" != 503 ] && [ "$adm" = 200 ] && [ "$default_pw" = 401 ] && [ "$again" = 400 ] && [ "$gone" = gone ]'
+    check "IA4.EA7.still-claimed-after-restart" eval '[ "$anon" != 503 ] && [ "$adm" = 200 ] && [ "$default_pw" = 401 ] && [ "$again" = 400 ] && [ "$gone" = gone ]'
     old="$(code_of -H "Authorization: Bearer $TOKEN" "$BASE/api/repositories")"
     tampered="$(code_of -H "Authorization: Bearer ${TOKEN}x" "$BASE/api/repositories/min-generic")"
     as_admin "$BASE/min-generic/a/file.bin"; get="$CODE"
     same="$(cmp -s "$WORK/file.bin" "$WORK/body" && echo identical || echo different)"
     DETAIL="token minted before restart $old, tampered $tampered, artifact GET $get ($same)"
-    check "IA6.old-token-verifies-after-restart" eval '[ "$old" = 200 ] && [ "$tampered" = 401 ] && [ "$get" = 200 ] && [ "$same" = identical ]'
+    check "EA9.old-token-verifies-after-restart" eval '[ "$old" = 200 ] && [ "$tampered" = 401 ] && [ "$get" = 200 ] && [ "$same" = identical ]'
 else
-    DETAIL="see $LOG_DIR"; check "IA6.restart" false
+    DETAIL="see $LOG_DIR"; check "EA7.restart" false
 fi
 
 echo
