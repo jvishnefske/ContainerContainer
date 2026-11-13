@@ -1,0 +1,157 @@
+# Access client operations the fork calls, and how embedded access serves each one.
+# Rows are the methods referenced from compiled fork code (base, storage, backend, web) on the Access client
+# interfaces, plus router calls made through a local variable. Classes follow research/access-api: critical =
+# startup or every request depends on it; feature = a user-visible feature; optional = a safe default answer is
+# enough; unsupported = refused by FailClosed (the caller already handles the failure).
+# Checked by AccessLiteOperationsCoverageTest: critical and feature rows must be implemented, unsupported rows
+# must fail closed. Method parameters are simple erased type names.
+surface	method	class	note
+client	ping()	critical	AL5 startup gate; in process, always healthy
+client	readiness()	critical	AL5 readiness probe
+client	token()	critical	token surface
+client	system()	critical	server name and service id at init
+client	config()	critical	AL6 security config read on every login path
+client	cachedAuth()	critical	AL9 Basic and UI login
+client	auth()	critical	principalCanDo via auth()
+client	grpcAuth(AuthSettingsClient)	critical	AL9 login
+client	cachedUsers()	critical	AL8 user lookups
+client	groups()	feature	AL10 group CRUD and sync
+client	permissions()	critical	AL11 ACL freshness polling
+client	grpcPermissions()	critical	AL11 ACL cache load
+client	cachedGrpcPlatformConfigs()	critical	AL7 platform config at init
+client	cachedLicense()	critical	license client fetched at init
+client	cachedAuthSettingClient(EncryptionWrapper)	critical	LDAP and Crowd settings at init
+client	cachedGrpcProject()	critical	projects service init
+client	registry()	critical	logged no-op surface
+client	notifications()	feature	logged no-op surface
+client	router()	critical	logged no-op surface at shutdown
+client	getTenantID()	critical	single tenant: empty
+client	useAuth(AccessAuth)	critical	no auth needed in process: returns the client
+client	close()	critical	nothing owned
+client	hashCode()	critical	logged at init; identity
+client	imports()	optional	returns a refusing surface
+client	restCall(RestRequest)	unsupported	raw REST: only password expire/unexpire for all users; refused
+cachedAuth	authenticate(LoginRequest)	feature	AL9 password login; dummy compare for unknown users
+cachedAuth	loginByAuthHeader(String)	feature	Bearer or Basic header to principal
+cachedAuth	verifyPassword(String)	feature	IA6 password policy
+cachedAuth	mtls()	critical	returns a refusing surface; mTLS reported disabled
+cachedAuth	principalCanDo(AccessPrincipal,PermissionScope)	optional	answers false: token scopes never widen ACLs
+cachedAuth	principalCanDo(AccessPrincipal,PermissionScope,boolean)	optional	answers false
+mtls	extractUsername(HttpRequest)	unsupported	mTLS not supported; config reports it disabled
+grpcAuth	authenticate(String,String)	critical	AL9 every Basic login; JWT secret verified as token
+grpcAuth	uiLogin(String,String)	feature	AL9 UI login
+authSettings	getAllLdapSettings()	feature	LDAP settings, used by Artifactory's LDAP provider
+authSettings	upsertLdapSetting(LdapSetting)	feature	stored encrypted in ea_kv
+authSettings	upsertLdapSetting(Collection)	feature	stored encrypted in ea_kv
+authSettings	deleteLdapSetting(String)	feature	LDAP settings
+authSettings	getAllLdapGroupSettings()	feature	LDAP group settings
+authSettings	upsertLdapGroupSetting(LdapGroupSetting)	feature	LDAP group settings
+authSettings	upsertLdapGroupSettings(Collection)	feature	LDAP group settings
+authSettings	deleteLdapGroupSetting(String)	feature	LDAP group settings
+authSettings	updateLdapConfig(LdapConfig)	feature	LDAP connection config
+authSettings	subscribeToLdapChanges(Runnable)	critical	registered at init
+authSettings	getCrowdSetting()	feature	Crowd, used by Artifactory's Crowd provider
+authSettings	getCrowdSetting(boolean)	feature	Crowd
+authSettings	upsertCrowdSetting(CrowdSetting)	feature	Crowd
+authSettings	subscribeToCrowdChanges(Runnable)	critical	registered at init
+authSettings	getHttpSsoSetting()	feature	HTTP SSO
+authSettings	upsertHttpSsoSetting(HttpSsoSetting)	feature	HTTP SSO
+authSettings	subscribeToHttpSsoChanges(Runnable)	critical	registered at init
+authSettings	getSamlSetting()	feature	stored, inert
+authSettings	getSamlSetting(boolean)	feature	stored, inert
+authSettings	upsertSamlSetting(SamlSetting)	feature	stored, inert
+authSettings	upsertSamlEncryptedAssertion(SamlEncryptedAssertion)	feature	stored, inert
+authSettings	subscribeToSamlChanges(Runnable)	critical	registered at init
+authSettings	getAllOAuthSettings()	feature	stored, inert
+authSettings	getOAuthSetting(String)	feature	stored, inert
+authSettings	upsertOAuthSettings(Collection)	feature	stored, inert
+authSettings	deleteOAuthSettings(String)	feature	stored, inert
+authSettings	getOAuthGeneralSettings()	feature	stored, inert
+authSettings	upsertOAuthGeneralSettings(OAuthGeneralSettings)	feature	stored, inert
+authSettings	upsertProxySetting(ProxySetting)	feature	stored
+authSettings	isAnyExternalProviderEnabled()	critical	enabled LDAP or Crowd only
+config	getAnonymousAccessEnabled()	critical	AL6 default off
+config	getBasicAuthenticationEnabled()	critical	AL6 default on
+config	getEnabledRealms()	critical	AL6 internal plus enabled ldap and crowd
+config	getMTlsConfiguration()	critical	AL6 always disabled
+config	getPasswordEncryptionPolicy()	critical	AL6 default supported
+config	getPasswordPolicyEnabled()	feature	IA6 default on
+config	getUserLockPolicy()	critical	AL6 lock policy
+config	updateConfigurationModel(Map)	critical	AL5 startup push; deep merge, null deletes
+groups	createGroup(GroupRequest)	feature	AL10
+groups	deleteGroup(String)	feature	AL10
+groups	findGroupByName(String)	feature	AL10
+groups	findGroupsByNames(Iterable)	feature	AL10
+groups	findGroups()	feature	AL10
+groups	findGroupUsers(String)	feature	AL10
+groups	manageGroupUsers(String,ManageGroupMembersRequest)	feature	AL10 membership
+groups	updateGroup(UpdateGroupRequest)	feature	AL10 merge patch
+imports	importSecurityEntities(ImportEntitiesRequest,boolean)	unsupported	security import into Access; data lives in the Artifactory database
+notifications	deleteResource(ResourceType,String)	optional	logged no-op
+grpcPermissions	findPermissionsByResourceType(ResourceType)	critical	AL11 ACL cache load
+grpcPermissions	onPermissionsAffected(Consumer)	feature	AL12 change bus subscription
+permissions	createPermission(PermissionRequest)	feature	AL11 permission CRUD
+permissions	replacePermission(PermissionRequest)	feature	AL11
+permissions	deletePermissionById(String)	feature	AL11
+permissions	findByResourceTypeAndDisplayName(ResourceType,String)	feature	AL11
+permissions	findPrincipalPermissionsByResourceTypeAndAction(AccessPrincipal,ResourceType,Action,boolean)	feature	user and group grants
+permissions	lastUpdated()	critical	AL11 ACL freshness stamp
+platformConfigs	getConfig(String,Class)	critical	AL7
+platformConfigs	getConfig(String,TypeReference)	critical	AL7 list documents
+platformConfigs	setConfig(String,Object,boolean)	critical	AL7
+platformConfigs	updateConfig(String,UnaryOperator,Class,boolean)	critical	AL7 compare-and-swap
+license	add(String,String)	feature	only when a license is installed; recorded
+license	setSubscriptionType(SubscriptionType)	optional	recorded
+project	getProjectSlimEntity(String)	optional	AL16 only the default project
+project	addProjectResource(String,ResourceType,String,Set,boolean)	optional	dropped
+project	upsertProjectResource(String,ResourceType,ProjectResourceEntity,boolean)	optional	dropped
+project	removeProjectResource(String,ResourceType,String)	optional	dropped
+project	syncResources(ResourceType,Set)	optional	dropped
+project	getProjectResourceEntitiesMap(String,ResourceType,boolean)	optional	empty
+project	getProjectForResource(String,ResourceType)	optional	none
+project	getProjectForResourceMap(Set,ResourceType,boolean)	optional	empty
+project	getAllProjectsManagedByUser(String,Collection)	optional	empty
+project	getAllProjectKeys()	optional	empty
+project	getProjectDisplayName(String)	optional	none
+project	getAllProjects()	optional	empty
+project	canDoAction(String,String,Collection,RoleActions)	optional	false
+project	isProjectAdmin(String,String,Collection)	optional	false
+project	isAnyProjectAdminByRoleScope(JwtAccessToken)	optional	false
+project	isProjectAdminByRoleScopeAndProjectKey(JwtAccessToken,String)	optional	false
+project	canProjectAdminDoOnResource(String,ResourceType,Collection,String,Collection)	optional	false
+project	getGlobalEnvironments()	optional	DEV and PROD
+project	getEnvironments(String)	optional	empty
+project	getEnvironmentsEntity(String,String)	optional	empty
+project	getProjectKeysByUsernameAndGroupNames(String,Collection)	optional	empty
+registry	registerServiceId(ServiceId)	optional	logged no-op
+registry	unregisterServiceId(ServiceId)	optional	logged no-op
+router	registerService(RouterRegistrationData)	optional	logged no-op
+router	unregisterService(RouterRegistrationData)	optional	logged no-op at shutdown
+system	getAccessServerName()	critical	AL5 embedded-access
+system	getAccessServiceId()	critical	jfac service id
+system	exportAccessServer()	unsupported	backed up with the Artifactory database
+system	importAccessServer()	unsupported	backed up with the Artifactory database
+system	importAccessServerSaasMigration()	unsupported	SaaS migration
+system	importAccessServerSaasMigration(byte[])	unsupported	SaaS migration
+token	create(TokenRequest)	feature	AL13 RS256 mint, recorded with full scope
+token	refresh(String,TokenRequest)	feature	AL13 single-use refresh token
+token	revoke(String)	feature	AL14 revocable tokens only
+token	revokeById(String)	feature	AL14
+token	revokeAllForUserAndScope(String,String)	feature	remember-me revocation on password change
+token	verify(String)	critical	AL14 every Bearer use; Access verifier plus store revocation
+token	parse(String)	critical	decode only
+token	getAccessTokenType(String)	critical	JWT or not valid; no reference tokens
+token	getTokensInfo()	feature	AL14 token list
+token	verifyBackOfficeOnServer(String,String)	unsupported	back-office tokens come from a JFrog service
+cachedUsers	findUserByUsername(String)	critical	AL8
+cachedUsers	findUserByUsername(String,boolean)	critical	AL8 lock check on every request
+cachedUsers	findUserWithGroupsByUsername(String,boolean)	critical	AL8 login
+cachedUsers	findUsers()	feature	AL8
+cachedUsers	findUsers(FindUsersRequest)	feature	AL8 filters incl. password expiry
+cachedUsers	findUsersByCustomData(String,boolean)	feature	property search, key suffix match when not exact
+cachedUsers	findUsersByCustomData(String,String,boolean)	feature	admin lookup and property search
+cachedUsers	createUser(UserRequest)	feature	AL8 UI create and JIT realm users
+cachedUsers	updateUser(UpdateUserRequest)	feature	AL8 merge patch; null custom datum deletes; must_change_password column
+cachedUsers	deleteUser(String)	feature	AL8
+cachedUsers	replaceUserLastLogin(String,long,String)	feature	AL8 last login
+cachedUsers	register(UserRegistrationRequestImpl)	unsupported	OAuth invitation activation; OAuth is inert
