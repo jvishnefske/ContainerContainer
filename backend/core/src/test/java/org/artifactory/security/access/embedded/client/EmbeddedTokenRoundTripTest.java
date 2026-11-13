@@ -21,7 +21,11 @@ import org.jfrog.access.client.token.TokenRequest;
 import org.jfrog.access.client.token.TokenResponse;
 import org.jfrog.access.common.ServiceId;
 import org.jfrog.access.common.token.TokenVerifyResult;
+import org.jfrog.access.model.Realm;
+import org.jfrog.access.model.UserStatus;
 import org.jfrog.access.rest.token.TokenVerifyResponseImpl;
+import org.jfrog.access.rest.user.UpdateUserRequest;
+import org.jfrog.access.rest.user.UserRequest;
 import org.jfrog.access.token.AccessTokenType;
 import org.jfrog.access.token.JwtAccessToken;
 import org.jfrog.access.token.verifier.ClientTokenVerifyContext;
@@ -129,6 +133,37 @@ class EmbeddedTokenRoundTripTest {
         EaChange event = fx.awaitEvent(e -> e instanceof EaChange.TokenRevoked);
         assertEquals(SUBJECT, ((EaChange.TokenRevoked) event).subject());
         assertTrue(tokens.getTokensInfo().getTokens().stream().noneMatch(t -> t.getTokenId().equals(jti)));
+    }
+
+    @Test
+    void deletingAUserRevokesAllOfItsTokensIncludingNonRevocableOnes() {
+        fx.client.cachedUsers().createUser(UserRequest.create().username("alice").email("alice@example.org")
+                .password("correct-horse-battery-staple").realm(Realm.INTERNAL).status(UserStatus.ENABLED));
+        TokenResponse longLived = mint(Duration.ofDays(2).toSeconds(), true);
+        TokenResponse shortLived = mint(600, false);
+        assertTrue(tokens.verify(shortLived.getTokenValue()).isSuccessful());
+
+        fx.client.users().deleteUser("alice");
+
+        assertFalse(tokens.verify(longLived.getTokenValue()).isSuccessful());
+        assertFalse(tokens.verify(shortLived.getTokenValue()).isSuccessful());
+        assertThrows(AccessClientHttpException.class,
+                () -> fx.client.grpcAuth(null).loginByAuthToken("alice", shortLived.getTokenValue()));
+        assertThrows(AccessClientHttpException.class,
+                () -> tokens.refresh(longLived.getRefreshToken().orElseThrow(), sameScope().build()));
+    }
+
+    @Test
+    void refreshIsRefusedForADisabledUser() {
+        fx.client.cachedUsers().createUser(UserRequest.create().username("alice").email("alice@example.org")
+                .password("correct-horse-battery-staple").realm(Realm.INTERNAL).status(UserStatus.ENABLED));
+        TokenResponse token = mint(3600, true);
+        UpdateUserRequest disable = UpdateUserRequest.create();
+        disable.username("alice").status(UserStatus.DISABLED);
+        fx.client.cachedUsers().updateUser(disable);
+        AccessClientHttpException e = assertThrows(AccessClientHttpException.class,
+                () -> tokens.refresh(token.getRefreshToken().orElseThrow(), sameScope().build()));
+        assertEquals(401, e.getStatusCode());
     }
 
     @Test

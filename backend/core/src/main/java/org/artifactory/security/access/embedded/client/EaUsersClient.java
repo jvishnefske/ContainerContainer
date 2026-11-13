@@ -9,6 +9,7 @@
 
 package org.artifactory.security.access.embedded.client;
 
+import org.artifactory.security.access.embedded.core.EaToken;
 import org.artifactory.security.access.embedded.core.EaUser;
 import org.jfrog.access.client.user.FindUsersRequest;
 import org.jfrog.access.model.UserStatus;
@@ -202,11 +203,19 @@ final class EaUsersClient {
     }
 
     /**
-     * Deletes a user.
+     * Deletes a user after revoking every token whose subject is that user, so no token of a deleted user keeps
+     * authenticating.
      *
      * @param username the username
      */
     public void deleteUser(String username) {
+        // Revoke first, so a failure leaves the user's tokens dead rather than a deleted user's tokens alive. All of
+        // them, revocable or not: a deleted user's token would otherwise authenticate as a transient user.
+        for (EaToken t : EaErrors.orThrow(rt.store().listTokens())) {
+            if (!t.revoked() && EaTokenClient.isUserSubject(t.subject(), username)) {
+                EaErrors.orThrow(rt.store().revokeToken(t.jti()));
+            }
+        }
         EaErrors.orThrow(rt.store().deleteUser(username));
     }
 

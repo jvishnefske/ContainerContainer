@@ -138,6 +138,10 @@ final class EaTokenClient {
         if (request.getSubject() != null && !request.getSubject().equals(old.subject())) {
             throw EaErrors.http(EaErrors.BAD_REQUEST, "refresh cannot change the token subject");
         }
+        if (SubjectFQN.isUserTokenSubject(old.subject())) {
+            EaErrors.orThrow(rt.store().getUser(SubjectFQN.extractUsername(old.subject())))
+                    .ifPresent(EaAuthenticator::assertCanLogIn);
+        }
         List<String> scope = request.getScope() == null || request.getScope().isEmpty()
                 ? Arrays.asList(old.scope().split(ScopeGrammar.DELIMITER)) : request.getScope();
         long expiresIn = request.getExpiresIn() != null ? request.getExpiresIn()

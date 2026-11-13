@@ -179,7 +179,13 @@ final class EaAuthenticator {
         return out;
     }
 
-    private static void assertCanLogIn(EaUser user) {
+    /**
+     * Refuses a user who may not log in: disabled answers 401, locked answers 429.
+     *
+     * @param user the user
+     * @throws AccessClientHttpException when the user is disabled or locked
+     */
+    static void assertCanLogIn(EaUser user) {
         switch (user.status()) {
             case ENABLED -> {
             }
