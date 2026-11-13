@@ -1,12 +1,13 @@
 # Binary release built by the Nix flake.
 #
 # A push of tag v<version>, where <version> is the content of nix/version.txt, runs every flake check, builds
-# packages.release (containercontainer-<version>-jars.tar.gz and SHA256SUMS), rebuilds it to confirm the bytes are
-# reproducible, verifies the sums and publishes a GitHub Release with both files. workflow_dispatch does all of that
+# packages.release (containercontainer-<version>-jars.tar.gz) and packages.release-oci (the minimal from-scratch
+# image containercontainer-<version>.oci.tar with zstd layers, and containercontainer-<version>.oci.json with its
+# sha256, size, manifest digest and layer sizes), rebuilds the jar tarball and the image to confirm the bytes are
+# reproducible, verifies the sums and publishes a GitHub Release with all files. workflow_dispatch does all of that
 # except publishing (a dry run; the files are kept as a workflow artifact).
 #
-# Every file in dist/ becomes a release asset and dist/SHA256SUMS covers all of them, so a later asset (for example
-# a from-scratch *.oci.tar image) is added by building it into dist/ in the build job.
+# Every file in dist/ becomes a release asset and dist/SHA256SUMS covers all of them.
 name: release
 
 on:
@@ -44,14 +45,21 @@ jobs:
         run: nix flake check -L
       - name: Build the release
         run: nix build -L .#release --out-link result-release
+      - name: Build the minimal OCI image assets
+        run: nix build -L .#release-oci --out-link result-oci
       - name: Rebuild the release and require identical bytes
         run: nix build -L .#release --rebuild --no-link
+      - name: Rebuild the image and require identical bytes
+        run: nix build -L .#oci --rebuild --no-link
       - name: Collect and verify the assets
         run: |
+          (cd result-release && sha256sum -c SHA256SUMS)
+          (cd result-oci && sha256sum -c SHA256SUMS)
           mkdir dist
-          cp result-release/* dist/
+          cp result-release/*.tar.gz result-oci/*.oci.tar result-oci/*.oci.json dist/
           chmod u+w dist/*
           cd dist
+          sha256sum -- *.tar.gz *.oci.tar *.oci.json > SHA256SUMS
           sha256sum -c SHA256SUMS
           ls -l
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

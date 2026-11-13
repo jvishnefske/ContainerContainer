@@ -1,5 +1,6 @@
 # Build the fork with the Nix flake: every flake check (jar set vs. the stock listing, deterministic release
-# packing, the WASM plugin builder and its imports check), then the jars and the release tarball.
+# packing, the WASM plugin builder and its imports check, the minimal image's structure and module set), then the
+# jars, the release tarball and the minimal OCI image assets.
 # Maven dependencies come from the fixed-output derivation pinned by nix/mvn-hash.txt; the build itself is offline.
 name: nix
 
@@ -28,7 +29,9 @@ jobs:
             sandbox = true
       - name: nix flake check
         run: nix flake check -L
-      - name: Build the jars and the release tarball
-        run: nix build -L .#jars .#release
+      - name: Build the jars, the release tarball and the minimal OCI image
+        run: nix build -L .#jars .#release .#release-oci
       - name: Verify the release checksums
-        run: cd result-1 && sha256sum -c SHA256SUMS
+        run: |
+          (cd result-1 && sha256sum -c SHA256SUMS)
+          (cd result-2 && sha256sum -c SHA256SUMS)

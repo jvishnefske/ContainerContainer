@@ -70,9 +70,29 @@ section "Binary release and Nix".
       Evidence: `checks.release-deterministic` (packs twice from inputs with different mtimes, compares bytes with
       the package, runs `sha256sum -c SHA256SUMS`, requires owner 0/0 on every entry) passes, and
       `nix build .#release --rebuild` reports identical output.
-- [ ] N3. The flake builds a minimal from-scratch OCI image (no stock base image) from Nix-built parts, with a
-      `plugins` argument, attached to releases as an additional asset. Prepared for: `packages.war` exposes the
-      complete WAR separately from the jar set, and the release workflow publishes every file it collects.
+- [x] N3. The flake builds a minimal from-scratch OCI image (no stock base image) from Nix-built parts, with a
+      `plugins` argument, attached to releases as an additional asset.
+      As built: `lib.mkImage { pkgs, plugins, extraConfig, accessUrl, accessGrpc, tag }` (`nix/image.nix`) and
+      `packages.oci` (no plugins): `dockerTools.streamLayeredImage` without `fromImage`, layered by an explicit
+      pipeline (base, JRE, Tomcat, third-party jars, fork jars, config and launcher, plugins, customisation), then
+      `nix/image/to-oci.py` writes an OCI layout with `zstd -19` layers
+      (`application/vnd.oci.image.layer.v1.tar+zstd`) plus a `docker save` style `manifest.json`. Creation time is
+      the commit time. `packages.release-oci` holds the archive, its `.oci.json` (sha256, size, manifest digest,
+      per-layer sizes) and a `SHA256SUMS` line; `release.yml` builds it, rebuilds `.#oci` for identical bytes and
+      publishes both assets under one `SHA256SUMS`. Plugins (Groovy, `.wasm` with `.wasm.yaml`) are installed
+      read-only and copied into `var/etc/artifactory/plugins` by the launcher on every start.
+      Evidence (2026-11-12, x86_64-linux): `packages.oci` is 128,471,040 bytes (597 MB of uncompressed layers);
+      `skopeo inspect --raw oci-archive:` lists eight `tar+zstd` layers, `docker load` (Docker 29, overlay2 storage)
+      loads it; `nix build .#oci --rebuild` reproduces it bit for bit (and the webapp, JRE, Tomcat and config
+      inputs likewise); `checks.image-structure` and `checks.image-example-structure` (blob digests, diff_ids,
+      media types, layer order) and `checks.image-plugin-rules` (a `.wasm` without manifest fails the build) pass;
+      `docker/it/run-min-it.sh` on `packages.oci-example` (the OCI registry and echo-realm plugins), 12 passed
+      0 failed: `N3.ping`, `N3.admin-login`, `N3.yaml-patch-creates-generic-repository`,
+      `N3.deploy-download-round-trip`, `N3.token-mint-and-bearer-use`, `N3.oci-registry-plugin-loaded`,
+      `N3.v2-401-anonymous-200-admin`, `N3.oci-push-pull-round-trip`, `N3.echo-realm-wasm-plugin-loaded`,
+      `N3.echo-realm-bearer-login-runs-execution`, `N6.runs-as-non-root`, `N6.no-web-ui`. Access is not in the image;
+      the test stands in for the planned replacement service with the Access webapp of the stock image, run as a
+      throwaway sidecar container (Access binds gRPC to 127.0.0.1). Publishing the asset waits for N5's first run.
 - [x] N4. `lib.buildWasmPlugin` builds a Rust crate for `wasm32-wasip1` offline from its `Cargo.lock` and fails the
       build when the module imports anything outside `wasi_snapshot_preview1`.
       Evidence: `checks.wasm-hello` builds `nix/tests/wasm-hello` (imports: five `wasi_snapshot_preview1`
@@ -80,11 +100,35 @@ section "Binary release and Nix".
       three replies against the `Reply` definition of `abi-v1.schema.json`; `checks.wasm-imports-check-rejects`
       shows the same module failing the build when only `env` imports are allowed.
 - [ ] N5. Pushing tag `v<version>` runs `.github/workflows/release.yml`: tag and `nix/version.txt` must agree, all
-      flake checks pass, the release is rebuilt bit for bit and its sums verified, and a GitHub Release carries the
-      tarball and `SHA256SUMS`; a manual run is a dry run that publishes nothing. Only `GITHUB_TOKEN` is used, with
+      flake checks pass, the release and the minimal image are rebuilt bit for bit and their sums verified, and a
+      GitHub Release carries the tarball, the image archive (`.oci.tar`) with its `.oci.json`, and one `SHA256SUMS`
+      covering them; a manual run is a dry run that publishes nothing. Only `GITHUB_TOKEN` is used, with
       `contents: write` in the publishing job alone.
       Not yet checked: the workflow has not run (no tag pushed). Its steps were run locally: `nix flake check`,
-      `nix build .#release`, `nix build .#release --rebuild`, `sha256sum -c SHA256SUMS`.
+      `nix build .#release`, `nix build .#release --rebuild`, `nix build .#release-oci`, `nix build .#oci --rebuild`,
+      `sha256sum -c SHA256SUMS`.
+
+- [x] N6. The minimal image contains only an allowlist: the fork's webapp from `packages.war`, Tomcat 11 from nixpkgs
+      (`tomcat11` 11.0.24; the stock image has 11.0.25) cut to the stock Tomcat's jar set, Apache Derby 10.17.1.0
+      and PostgreSQL JDBC 42.7.13 from Maven Central (hashes equal to the stock image's copies), a jlink'd runtime of
+      nixpkgs' headless OpenJDK 25 with the modules of `nix/image/jre-modules.txt`, busybox, CA certificates, the
+      launcher and base files. Nothing is taken from JFrog's stock image: no Access, router, frontend, event,
+      metadata, observability, topology, jfconfig, jfbus or other JFrog service, no `jfrog-tomcat-lib.jar`, and no
+      web UI. It runs as uid and gid 1030 with the var directory as a volume. Left out of the WAR's jar set, each
+      checked by the live test: the web UI assets in `artifactory-web-application` (152 MB of 5208 entries), the
+      Oracle JDBC driver, the AWS RDS helpers, the Kubernetes client (`io.kubernetes:client-java`, `-api`,
+      `-proto`; JFrog's `org.jfrog.worker:client-java` is needed and kept), Lombok and the MapStruct processor, and
+      native libraries for other platforms inside zstd-jni, JNA, grpc-netty-shaded and byte-buddy-agent; unsigned
+      jars are re-stored uncompressed for the zstd layer compression.
+      Evidence: `checks.image-structure` and `checks.image-example-structure` (`nix/image/check-image.py`) require
+      the exact jar set (the WAR's kept jars, Tomcat's, the drivers and the JRE's `jrt-fs.jar`; 457 jars), ELF
+      files only under the closure of the JRE and busybox (339 files), no path component naming a JFrog service, no
+      `.war`, `jfrog-tomcat-lib` or `access-server` file, the expected files, user `1030:1030` and the var volume
+      owned by it; `checks.jre-modules` runs jdeps over all 457 jars and fails on a needed module the runtime lacks
+      (excluded on purpose: `jdk.jdi`, only javassist's HotSwapper, and `jdk.incubator.vector`, Lucene's opt-in
+      vector code); the runtime is 101 MB, has no reference to the JDK it came from (`disallowedReferences`) and
+      none to ALSA. Live: `N6.runs-as-non-root`, `N6.no-web-ui` and every N3 assertion above, with WASM running
+      in that runtime (W7).
 
 ### Groovy plugin engine
 

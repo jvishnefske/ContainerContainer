@@ -87,13 +87,37 @@
       buildWasmPlugin =
         args: import ./nix/wasm-plugin.nix ({ rustToolchain = wasmToolchain args.pkgs; } // args);
 
+      # Image creation time: the commit time of the flake source (lastModifiedDate is YYYYMMDDHHMMSS).
+      created =
+        let
+          d = self.lastModifiedDate or "19700101000001";
+          s = start: len: builtins.substring start len d;
+        in
+        "${s 0 4}-${s 4 2}-${s 6 2}T${s 8 2}:${s 10 2}:${s 12 2}Z";
+
+      # lib.mkImage { pkgs, plugins ? [ ], extraConfig ? { }, accessUrl ? ..., accessGrpc ? ..., tag ? version }:
+      # the minimal from-scratch OCI image (nix/image.nix) around this flake's WAR for pkgs' system.
+      mkImage =
+        args:
+        import ./nix/image.nix (
+          {
+            war = self.packages.${args.pkgs.stdenv.hostPlatform.system}.war;
+            inherit
+              version
+              srcVersion
+              sourceRev
+              created
+              ;
+            license = ./LICENSE;
+            rootWebapp = ./devenv/src/main/install/misc/tomcat/webapps/ROOT;
+          }
+          // args
+        );
+
     in
     {
       lib = {
-        inherit buildWasmPlugin version;
-        # Hook for a from-scratch image: a later lib.mkImage { pkgs, plugins ? [ ] } builds a layered OCI image
-        # (dockerTools.buildLayeredImage, no fromImage) from packages.war, a jlink'd JRE 25 and Tomcat, adding
-        # plugin files (Groovy, buildWasmPlugin outputs) to its plugins directory. Not implemented yet.
+        inherit buildWasmPlugin mkImage version;
       };
 
       packages = forAllSystems (
@@ -119,10 +143,27 @@
             license = ./LICENSE;
             abiSchema = ./plugins/wasm-abi/abi-v1.schema.json;
           };
-          # The whole webapp WAR, the input for a future from-scratch OCI image (see lib above).
+          # The whole webapp WAR, the input of the from-scratch OCI image (lib.mkImage).
           war = pkgs.runCommand "containercontainer-war-${version}" { } ''
             install -D -m 0644 ${jarsBuild}/war/artifactory.war "$out/artifactory.war"
           '';
+          # The minimal image without plugins, and the release assets made from it.
+          oci = mkImage { inherit pkgs; };
+          release-oci = pkgs.callPackage ./nix/release-oci.nix { inherit oci; };
+          # The public example plugins in mkImage form: the OCI registry (Groovy) and echo-realm (WASM: the
+          # committed build of plugins/wasm-examples/echo-realm and its manifest). docker/it/run-min-it.sh runs it.
+          echo-realm-plugin = pkgs.runCommand "echo-realm-plugin" { } ''
+            install -D -m 0444 ${./backend/core/src/test/resources/wasm/echo-realm.wasm} "$out/echo-realm.wasm"
+            install -D -m 0444 ${./plugins/wasm-examples/echo-realm/echo-realm.wasm.yaml} "$out/echo-realm.wasm.yaml"
+          '';
+          oci-example = mkImage {
+            inherit pkgs;
+            tag = "${version}-example";
+            plugins = [
+              ./plugins/oci/oci-registry.groovy
+              echo-realm-plugin
+            ];
+          };
           wasm-hello = buildWasmPlugin {
             inherit pkgs;
             pname = "wasm-hello";
@@ -136,6 +177,10 @@
             jars
             war
             release
+            oci
+            release-oci
+            echo-realm-plugin
+            oci-example
             wasm-hello
             ;
           default = release;
@@ -150,6 +195,53 @@
         {
           jars-vs-stock = pkgs.callPackage ./nix/checks/jars-vs-stock.nix { inherit (p) jars; };
           release-deterministic = p.release.passthru.deterministic;
+          # The minimal image: its structure (contents allowlist, layer order, media types, non-root user), the
+          # same for the plugin example, and the runtime's module set against jdeps.
+          image-structure = pkgs.callPackage ./nix/image/check-image.nix {
+            image = p.oci;
+            inherit (p) war;
+          };
+          image-example-structure = pkgs.callPackage ./nix/image/check-image.nix {
+            image = p.oci-example;
+            inherit (p) war;
+            plugins = [
+              "oci-registry.groovy"
+              "echo-realm.wasm"
+              "echo-realm.wasm.yaml"
+            ];
+          };
+          jre-modules = pkgs.callPackage ./nix/image/jre-modules-check.nix { image = p.oci; };
+          # mkImage evaluates with every argument and rejects a .wasm without its manifest.
+          image-plugin-rules =
+            let
+              failed = pkgs.testers.testBuildFailure (
+                (mkImage {
+                  inherit pkgs;
+                  plugins = [ ./backend/core/src/test/resources/wasm/echo-realm.wasm ];
+                }).passthru.parts.pluginsDir
+              );
+            in
+            pkgs.runCommand "check-image-plugin-rules"
+              {
+                # Evaluating the stream's derivation path evaluates the whole image config, without building it.
+                evaluated =
+                  builtins.unsafeDiscardStringContext
+                    (mkImage {
+                      inherit pkgs;
+                      plugins = [ p.echo-realm-plugin ];
+                      extraConfig = {
+                        Env = [ "JAVA_OPTIONS=-Xmx1g" ];
+                        Labels."org.example.extra" = "yes";
+                      };
+                      accessUrl = "http://access.example:8040/access";
+                      accessGrpc = "access.example:8045";
+                      tag = "check";
+                    }).passthru.stream.drvPath;
+              }
+              ''
+                grep -q 'echo-realm.wasm has no echo-realm.wasm.yaml manifest' ${failed}/testBuildFailure.log
+                touch $out
+              '';
           wasm-hello = pkgs.callPackage ./nix/checks/wasm-hello.nix {
             plugin = p.wasm-hello;
             schema = ./plugins/wasm-abi/abi-v1.schema.json;

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Default context of every webapp (as in the stock image): no session persistence, no resource caching, no jar
+     scanning for web fragments or tag libraries, and the rewrite valve (rules in each webapp's rewrite.config). -->
+<Context unloadDelay="5000" clearReferencesThreadLocals="false">
+    <Manager pathname=""/>
+    <CookieProcessor className="org.apache.tomcat.util.http.Rfc6265CookieProcessor" forwardSlashIsSeparator="false"/>
+    <Resources cachingAllowed="false"/>
+    <JarScanner>
+        <JarScanFilter defaultPluggabilityScan="false" pluggabilitySkip="*" pluggabilityScan="" defaultTldScan="false"/>
+    </JarScanner>
+    <Valve className="org.apache.catalina.valves.rewrite.RewriteValve"/>
+</Context>

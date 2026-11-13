@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        script: [run-it, run-oci-it, run-wasm-it]
+        script: [run-it, run-oci-it, run-wasm-it, run-min-it]
     steps:
       - uses: actions/checkout@v4
       - name: Free disk space for the 3 GB Artifactory images
@@ -42,6 +42,12 @@ jobs:
           cache: maven
       - name: Build the fork's jars
         run: mvn $MAVEN_ARGS -T 1C -DskipTests install
+      # run-min-it builds the minimal image with the Nix flake (same pinned action as the nix workflow).
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31
+        if: matrix.script == 'run-min-it'
+        with:
+          extra_nix_config: |
+            sandbox = true
       - name: ${{ matrix.script }}
         env:
           LOG_DIR: ${{ runner.temp }}/logs

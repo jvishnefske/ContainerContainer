@@ -1,0 +1,41 @@
+# JDK modules of the minimal image's runtime (nix/image/jre.nix). One module per line; `#` starts a comment.
+# A line `-<module>` names a module jdeps reports but the image leaves out on purpose; checks.jre-modules fails
+# when jdeps reports a module that is neither in the built runtime (the listed modules and what they require)
+# nor excluded.
+#
+# Found by jdeps over the webapp and Tomcat jars (checks.jre-modules):
+java.base
+java.compiler
+java.desktop
+java.instrument
+java.logging
+java.management
+java.naming
+java.net.http
+java.prefs
+java.rmi
+java.scripting
+java.security.jgss
+java.security.sasl
+java.sql
+java.sql.rowset
+java.transaction.xa
+java.xml
+jdk.attach
+jdk.httpserver
+jdk.jfr
+jdk.management
+jdk.net
+jdk.unsupported
+# Loaded as services or by name at run time, which jdeps cannot see:
+java.management.rmi
+java.xml.crypto
+jdk.charsets
+jdk.management.agent
+jdk.naming.dns
+jdk.security.auth
+jdk.xml.dom
+jdk.zipfs
+# Reported by jdeps, left out:
+-jdk.jdi                 # only javassist.util.HotSwapper (a debugger-based class reloader) refers to it
+-jdk.incubator.vector    # Lucene's optional Panama code, used only when started with --add-modules for it

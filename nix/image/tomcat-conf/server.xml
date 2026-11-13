@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Tomcat server of the minimal ContainerContainer image (nix/image.nix). Read-only in the image; the launcher sets
+  jf.product.home. Port 8081 serves Artifactory at /artifactory and the ROOT webapp (rewrites /v2/ and /), as the
+  stock image's Tomcat does without its router in front. Port 8091 is the local-only connector the stock image has.
+  No shutdown port: the container stops the JVM with SIGTERM.
+-->
+<Server port="-1" shutdown="SHUTDOWN">
+    <Service name="Catalina">
+        <Connector port="8081" sendReasonPhrase="false" relaxedPathChars="[]" relaxedQueryChars="[]"
+                   maxThreads="200" encodedSolidusHandling="decode"/>
+        <Connector port="8091" address="localhost" maxThreads="5" acceptCount="5" encodedSolidusHandling="decode"/>
+        <Engine name="Catalina" defaultHost="localhost">
+            <Host name="localhost" appBase="webapps" workDir="${jf.product.home}/var/work/artifactory/tomcat"
+                  autoDeploy="false" deployOnStartup="true" unpackWARs="false" startStopThreads="2"/>
+        </Engine>
+    </Service>
+</Server>
