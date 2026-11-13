@@ -55,7 +55,7 @@ public class AccessLogger {
     private enum Action {
         ANNOTATE, ANNOTATE_DELETE, DOWNLOAD, DEPLOY, DELETE, SEARCH, LOGIN, CONFIGURATION_CHANGE, CREATE, UPDATE,
         APPROVE, AUTHENTICATE, FORM_SUBMIT, PROPERTY_ADDED, PROPERTY_REMOVED, PROPERTY_UPDATED, BUILD_CREATE,
-        BUILD_PROMOTE, BUILD_DELETE
+        BUILD_PROMOTE, BUILD_DELETE, INITIAL_ADMIN_CLAIM
     }
 
     private static final String ACCEPTED = "ACCEPTED";
@@ -205,6 +205,17 @@ public class AccessLogger {
 
     public static void buildDeleteDenied(String buildName) {
         logAction(null, Action.BUILD_DELETE, true, AuthenticationHelper.getAuthentication(), buildName);
+    }
+
+    /**
+     * Records a successful claim of the initial administrator (IA4). The claim request is anonymous, so the
+     * client address is passed explicitly rather than read from the request thread.
+     *
+     * @param clientAddress the address of the client that claimed the server
+     */
+    public static void initialAdminClaimed(String clientAddress) {
+        log.info("[{} {}] for client : {} / {}", ACCEPTED, Action.INITIAL_ADMIN_CLAIM.name(), "admin",
+                clientAddress);
     }
 
     public static void logAction(RepoPath repoPath, Action action, boolean denied, Authentication authentication) {

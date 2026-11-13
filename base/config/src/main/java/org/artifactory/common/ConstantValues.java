@@ -197,6 +197,8 @@ public enum ConstantValues {
     securityApiKeyBlockCreate("security.apiKey.blockCreate", TRUE),
     deprecatedPermissionsApiDisabled("security.deprecated.permissions.api.disabled", FALSE),
     deprecatedPermissionsApiV2Disabled("security.deprecated.permissions.api.v2.disabled", FALSE),
+    /** Lifetime in hours of the one-time initial-admin setup token (IA2). */
+    securityInitialAdminTokenTtlHours("security.initialAdmin.tokenTtlHours", 24),
     ldapMaxPageSize("ldap.max.page.size", 1000),
     ldapPagingSupport("ldap.paging.support", TRUE),
     ldapDisablePagingSupportPeriodMinutes("ldap.disable.paging.support.period.minutes", 10),

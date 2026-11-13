@@ -78,6 +78,11 @@
     </filter>
 
     <filter>
+        <filter-name>InitialSetupFilter</filter-name>
+        <filter-class>org.artifactory.webapp.servlet.InitialSetupFilter</filter-class>
+    </filter>
+
+    <filter>
         <filter-name>HttpHeadersAuditFilter</filter-name>
         <filter-class>org.artifactory.webapp.servlet.HttpHeadersAuditFilter</filter-class>
     </filter>
@@ -191,6 +196,14 @@
         <dispatcher>FORWARD</dispatcher>
         <dispatcher>REQUEST</dispatcher>
         <dispatcher>ERROR</dispatcher>
+    </filter-mapping>
+
+    <!-- Until the initial administrator is claimed, everything but ping, probes and the claim answers 503 (IA3) -->
+    <filter-mapping>
+        <filter-name>InitialSetupFilter</filter-name>
+        <url-pattern>/*</url-pattern>
+        <dispatcher>FORWARD</dispatcher>
+        <dispatcher>REQUEST</dispatcher>
     </filter-mapping>
 
     <filter-mapping>
