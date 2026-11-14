@@ -40,6 +40,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -72,7 +73,9 @@ class EmbeddedAccessFactoryTest {
     private DerbyMemoryDatabase database;
     private DataSource dataSource;
     private final List<EmbeddedAccess> started = new ArrayList<>();
-    private final Clock clock = Clock.fixed(Instant.parse("2026-11-13T10:00:00Z"), ZoneOffset.UTC);
+    // Fixed, but at the real current time: tokens are minted with this clock while JFrog's verifier checks their
+    // expiry against the system clock, so a fixed date in the past would make every minted token expired.
+    private final Clock clock = Clock.fixed(Instant.now().truncatedTo(ChronoUnit.SECONDS), ZoneOffset.UTC);
 
     @BeforeAll
     static void createEncryption() {
