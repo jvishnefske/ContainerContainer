@@ -96,6 +96,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.core.Authentication;
 import org.testng.Assert;
@@ -210,6 +211,8 @@ public class AccessServiceImplTest extends ArtifactoryHomeBoundTest {
 
     @BeforeMethod
     public void resetAll() throws CertificateGenerationException, IOException {
+        // An authentication left in the thread by an earlier test would change what the token scope checks read.
+        SecurityContextHolder.clearContext();
         mocks = openMocks(this);
 
         Mockito.reset(spyAccessConfigHolder);
@@ -287,6 +290,7 @@ public class AccessServiceImplTest extends ArtifactoryHomeBoundTest {
     @AfterMethod
     public void afterMethod() throws Exception {
         ArtifactoryContextThreadBinder.unbind();
+        SecurityContextHolder.clearContext();
         mocks.close();
     }
 
