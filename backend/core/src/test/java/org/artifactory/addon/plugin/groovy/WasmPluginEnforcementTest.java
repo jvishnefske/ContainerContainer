@@ -235,7 +235,8 @@ class WasmPluginEnforcementTest {
 
     @Test
     void trapsAndLoopsFailClosedAsNotMineAndAreReported() throws Exception {
-        install("echo-realm", EchoRealmFixture.bytes(), EchoRealmFixture.manifest("limits: {stepTimeoutMs: 300}"));
+        // Long enough that a normal step on a slow shared runner is never killed; the loop still hits it.
+        install("echo-realm", EchoRealmFixture.bytes(), EchoRealmFixture.manifest("limits: {stepTimeoutMs: 2000}"));
         assertEquals(Optional.empty(), bearer("trap:x"));
         assertEquals(Optional.empty(), bearer("loop:x"));
         assertEquals(2, rig.reports.size(), String.valueOf(rig.reports));
@@ -298,7 +299,7 @@ class WasmPluginEnforcementTest {
         rig.caller = new Caller("bob", false, Set.of());
         long first = body(run("echoMint", "POST")).get("calls").asLong();
         bearer("ok:carol");
-        install("echo-realm", EchoRealmFixture.bytes(), EchoRealmFixture.manifest("limits: {stepTimeoutMs: 300}"));
+        install("echo-realm", EchoRealmFixture.bytes(), EchoRealmFixture.manifest("limits: {stepTimeoutMs: 3000}"));
         long afterReload = body(run("echoMint", "POST")).get("calls").asLong();
         assertEquals(1, first);
         assertEquals(1, afterReload, "a reload starts the plugin with no state");

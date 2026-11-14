@@ -18,6 +18,9 @@ class AuthorizationServiceMetricsConfigurationTest {
 
     private MeterRegistry meterRegistry;
 
+    // Fork: the gauge holds the configuration weakly; keep it reachable, or a GC before gauge.value() makes it NaN.
+    private AuthorizationServiceMetricsConfiguration config;
+
     @BeforeEach
     void setUp() {
         meterRegistry = new SimpleMeterRegistry();
@@ -26,7 +29,7 @@ class AuthorizationServiceMetricsConfigurationTest {
     @Test
     void registerMetrics_shouldRegisterGaugeWithLegacyType_whenLegacyIsConfigured() {
         // Arrange & Act
-        new AuthorizationServiceMetricsConfiguration(meterRegistry, "legacy", 0.25f);
+        config = new AuthorizationServiceMetricsConfiguration(meterRegistry, "legacy", 0.25f);
 
         // Assert
         Gauge gauge = meterRegistry.find("authorization.service.info").gauge();
@@ -39,7 +42,7 @@ class AuthorizationServiceMetricsConfigurationTest {
     @Test
     void registerMetrics_shouldRegisterGaugeWithAccessType_whenAccessIsConfigured() {
         // Arrange & Act
-        new AuthorizationServiceMetricsConfiguration(meterRegistry, "access", 0.15f);
+        config = new AuthorizationServiceMetricsConfiguration(meterRegistry, "access", 0.15f);
 
         // Assert
         Gauge gauge = meterRegistry.find("authorization.service.info").gauge();
@@ -52,7 +55,7 @@ class AuthorizationServiceMetricsConfigurationTest {
     @Test
     void registerMetrics_shouldRegisterGaugeWithShadowType_whenShadowIsConfigured() {
         // Arrange & Act
-        new AuthorizationServiceMetricsConfiguration(meterRegistry, "shadow", 0.5f);
+        config = new AuthorizationServiceMetricsConfiguration(meterRegistry, "shadow", 0.5f);
 
         // Assert
         Gauge gauge = meterRegistry.find("authorization.service.info").gauge();
@@ -65,7 +68,7 @@ class AuthorizationServiceMetricsConfigurationTest {
     @Test
     void registerMetrics_shouldDefaultToLegacy_whenPropertyIsEmpty() {
         // Arrange & Act
-        new AuthorizationServiceMetricsConfiguration(meterRegistry, "", 0.1f);
+        config = new AuthorizationServiceMetricsConfiguration(meterRegistry, "", 0.1f);
 
         // Assert
         Gauge gauge = meterRegistry.find("authorization.service.info").gauge();
@@ -78,7 +81,7 @@ class AuthorizationServiceMetricsConfigurationTest {
     @Test
     void registerMetrics_shouldDefaultToLegacy_whenPropertyIsInvalid() {
         // Arrange & Act
-        new AuthorizationServiceMetricsConfiguration(meterRegistry, "invalid-value", 0.2f);
+        config = new AuthorizationServiceMetricsConfiguration(meterRegistry, "invalid-value", 0.2f);
 
         // Assert
         Gauge gauge = meterRegistry.find("authorization.service.info").gauge();

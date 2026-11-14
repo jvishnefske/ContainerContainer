@@ -533,8 +533,12 @@ abstract class AbstractEmbeddedAccessStoreTest {
         ok(store.createGroup(EaGroup.internal("g", T0)));
         ok(store.createUser(user("alice", Set.of("g"))));
         ok(store.createUser(user("bob", Set.of())));
+        // Delivery is asynchronous but ordered: consume the setup events instead of clearing the queue, which races
+        // with their delivery.
+        assertEquals(new EaChange.PermissionsAffected(Set.of(), Set.of("g")), nextEvent());
+        assertEquals(new EaChange.PermissionsAffected(Set.of("alice"), Set.of("g")), nextEvent());
+        assertEquals(new EaChange.PermissionsAffected(Set.of("bob"), Set.of()), nextEvent());
         long before = lastUpdated();
-        events.clear();
         int changed = ok(store.updateAllUsers(u -> u.username().equals("admin") ? u
                 : u.toBuilder().email("new-" + u.username() + "@example.org").modified(T0.plusSeconds(1)).build()));
         assertEquals(2, changed);

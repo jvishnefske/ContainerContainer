@@ -9,6 +9,8 @@ import lombok.SneakyThrows;
 import org.artifactory.api.security.AuthorizationService;
 import org.artifactory.model.common.RepoPathImpl;
 import org.artifactory.repo.RepoPath;
+import org.artifactory.api.context.ArtifactoryContextThreadBinder;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
@@ -36,6 +38,13 @@ class AuthorizationServiceInvocationHandlerTest {
     private AuthorizationServiceTestImpl newImpl;
     private MeterRegistry meterRegistry;
     private AuthorizationServiceInvocationTestHandler handler;
+
+    // Fork: the handler's executor takes ContextHelper.get(); a mock context leaked by an earlier test in the same
+    // JVM (several upstream tests bind one and never unbind) has no tracer, and the shadow call then fails.
+    @BeforeEach
+    void unbindLeakedContext() {
+        ArtifactoryContextThreadBinder.unbind();
+    }
 
     @Test
     void legacyAndNewMethodsAreCalled() throws Throwable {
