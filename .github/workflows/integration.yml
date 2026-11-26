@@ -43,7 +43,7 @@ jobs:
       - name: Build the fork's jars
         run: mvn $MAVEN_ARGS -T 1C -DskipTests install
       # run-min-it builds the minimal image with the Nix flake (same pinned action as the nix workflow).
-      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31
+      - uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
         if: matrix.script == 'run-min-it'
         with:
           extra_nix_config: |
